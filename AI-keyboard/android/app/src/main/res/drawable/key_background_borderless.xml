@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Pressed state with enhanced visual feedback -->
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="#E8E8E8"/>
+            <corners android:radius="6dp"/>
+        </shape>
+    </item>
+    
+    <!-- Focused state for accessibility -->
+    <item android:state_focused="true">
+        <shape android:shape="rectangle">
+            <solid android:color="#F5F5F5"/>
+            <stroke android:width="2dp" android:color="#2196F3"/>
+            <corners android:radius="6dp"/>
+        </shape>
+    </item>
+    
+    <!-- Default state - clean borderless look -->
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#F5F5F5"/>
+            <corners android:radius="6dp"/>
+        </shape>
+    </item>
+</selector>
+

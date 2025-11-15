@@ -1,0 +1,176 @@
+{
+  "sticker_packs": [
+    {
+      "id": "cute_animals_v1",
+      "name": "Cute Animals",
+      "author": "AI Keyboard Team",
+      "version": "1.0",
+      "thumbnail": "packs/cute_animals/thumb.png",
+      "category": "animals",
+      "stickers": [
+        {
+          "id": "cat_happy",
+          "file": "packs/cute_animals/cat_happy.png",
+          "emojis": ["😸", "🐱"],
+          "tags": ["cat", "happy", "cute", "smile", "pet"]
+        },
+        {
+          "id": "dog_excited",
+          "file": "packs/cute_animals/dog_excited.png",
+          "emojis": ["🐶", "😄"],
+          "tags": ["dog", "excited", "happy", "pet", "playful"]
+        },
+        {
+          "id": "bunny_love",
+          "file": "packs/cute_animals/bunny_love.png",
+          "emojis": ["🐰", "❤️"],
+          "tags": ["bunny", "rabbit", "love", "cute", "heart"]
+        },
+        {
+          "id": "panda_sleepy",
+          "file": "packs/cute_animals/panda_sleepy.png",
+          "emojis": ["🐼", "😴"],
+          "tags": ["panda", "sleepy", "tired", "cute", "rest"]
+        },
+        {
+          "id": "fox_clever",
+          "file": "packs/cute_animals/fox_clever.png",
+          "emojis": ["🦊", "😏"],
+          "tags": ["fox", "clever", "smart", "cute", "sly"]
+        },
+        {
+          "id": "bear_hug",
+          "file": "packs/cute_animals/bear_hug.png",
+          "emojis": ["🐻", "🤗"],
+          "tags": ["bear", "hug", "warm", "cute", "friendly"]
+        }
+      ]
+    },
+    {
+      "id": "business_pro_v1",
+      "name": "Business Pro",
+      "author": "AI Keyboard Team",
+      "version": "1.0",
+      "thumbnail": "packs/business_pro/thumb.png",
+      "category": "business",
+      "stickers": [
+        {
+          "id": "thumbs_up_pro",
+          "file": "packs/business_pro/thumbs_up.png",
+          "emojis": ["👍", "💼"],
+          "tags": ["approval", "business", "professional", "good", "success"]
+        },
+        {
+          "id": "handshake_deal",
+          "file": "packs/business_pro/handshake.png",
+          "emojis": ["🤝", "💼"],
+          "tags": ["handshake", "deal", "agreement", "business", "partnership"]
+        },
+        {
+          "id": "chart_success",
+          "file": "packs/business_pro/chart_up.png",
+          "emojis": ["📈", "💼"],
+          "tags": ["chart", "success", "growth", "business", "profit"]
+        },
+        {
+          "id": "meeting_time",
+          "file": "packs/business_pro/meeting.png",
+          "emojis": ["👥", "💼"],
+          "tags": ["meeting", "team", "business", "collaboration", "work"]
+        },
+        {
+          "id": "deadline_clock",
+          "file": "packs/business_pro/clock.png",
+          "emojis": ["⏰", "💼"],
+          "tags": ["deadline", "time", "urgent", "business", "schedule"]
+        }
+      ]
+    },
+    {
+      "id": "emotions_express_v1",
+      "name": "Express Emotions",
+      "author": "AI Keyboard Team",
+      "version": "1.0",
+      "thumbnail": "packs/emotions/thumb.png",
+      "category": "emotions",
+      "stickers": [
+        {
+          "id": "super_happy",
+          "file": "packs/emotions/super_happy.png",
+          "emojis": ["😆", "🎉"],
+          "tags": ["happy", "excited", "joy", "celebration", "awesome"]
+        },
+        {
+          "id": "mind_blown",
+          "file": "packs/emotions/mind_blown.png",
+          "emojis": ["🤯", "💥"],
+          "tags": ["mind blown", "shocked", "amazing", "wow", "incredible"]
+        },
+        {
+          "id": "heart_eyes",
+          "file": "packs/emotions/heart_eyes.png",
+          "emojis": ["😍", "❤️"],
+          "tags": ["love", "heart eyes", "adore", "crush", "romantic"]
+        },
+        {
+          "id": "thinking_hard",
+          "file": "packs/emotions/thinking.png",
+          "emojis": ["🤔", "💭"],
+          "tags": ["thinking", "pondering", "consider", "hmm", "wonder"]
+        },
+        {
+          "id": "rolling_eyes",
+          "file": "packs/emotions/rolling_eyes.png",
+          "emojis": ["🙄", "😒"],
+          "tags": ["rolling eyes", "annoyed", "whatever", "sarcastic", "bored"]
+        },
+        {
+          "id": "party_face",
+          "file": "packs/emotions/party.png",
+          "emojis": ["🥳", "🎊"],
+          "tags": ["party", "celebration", "fun", "festive", "exciting"]
+        }
+      ]
+    },
+    {
+      "id": "food_love_v1",
+      "name": "Food Lover",
+      "author": "AI Keyboard Team",
+      "version": "1.0",
+      "thumbnail": "packs/food/thumb.png",
+      "category": "food",
+      "stickers": [
+        {
+          "id": "pizza_slice",
+          "file": "packs/food/pizza.png",
+          "emojis": ["🍕", "😋"],
+          "tags": ["pizza", "food", "delicious", "italian", "yummy"]
+        },
+        {
+          "id": "burger_bite",
+          "file": "packs/food/burger.png",
+          "emojis": ["🍔", "😋"],
+          "tags": ["burger", "food", "fast food", "hungry", "tasty"]
+        },
+        {
+          "id": "coffee_love",
+          "file": "packs/food/coffee.png",
+          "emojis": ["☕", "❤️"],
+          "tags": ["coffee", "love", "caffeine", "morning", "energy"]
+        },
+        {
+          "id": "ice_cream_happy",
+          "file": "packs/food/ice_cream.png",
+          "emojis": ["🍦", "😊"],
+          "tags": ["ice cream", "dessert", "sweet", "happy", "treat"]
+        },
+        {
+          "id": "donut_craving",
+          "file": "packs/food/donut.png",
+          "emojis": ["🍩", "🤤"],
+          "tags": ["donut", "sweet", "craving", "dessert", "indulgent"]
+        }
+      ]
+    }
+  ]
+}

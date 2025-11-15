@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<input-method xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.kvive.keyboard.KeyboardSettingsActivity"
+    android:isDefault="true"
+    android:supportsSwitchingToNextInputMethod="true">
+    
+    <!-- Define supported subtypes (languages) -->
+    <subtype
+        android:label="English (US)"
+        android:imeSubtypeLocale="en_US"
+        android:imeSubtypeMode="keyboard"
+        android:imeSubtypeExtraValue="KeyboardLayoutSet=qwerty,AsciiCapable,SupportTouchPositionCorrection,EmojiCapable" />
+        
+    <subtype
+        android:label="Deutsch"
+        android:imeSubtypeLocale="de_DE"
+        android:imeSubtypeMode="keyboard"
+        android:imeSubtypeExtraValue="KeyboardLayoutSet=qwerty_de,AsciiCapable,SupportTouchPositionCorrection,EmojiCapable" />
+        
+    <subtype
+        android:label="Español"
+        android:imeSubtypeLocale="es_ES"
+        android:imeSubtypeMode="keyboard"
+        android:imeSubtypeExtraValue="KeyboardLayoutSet=qwerty_es,AsciiCapable,SupportTouchPositionCorrection,EmojiCapable" />
+        
+    <subtype
+        android:label="Français"
+        android:imeSubtypeLocale="fr_FR"
+        android:imeSubtypeMode="keyboard"
+        android:imeSubtypeExtraValue="KeyboardLayoutSet=qwerty_fr,AsciiCapable,SupportTouchPositionCorrection,EmojiCapable" />
+        
+    <subtype
+        android:label="हिन्दी"
+        android:imeSubtypeLocale="hi_IN"
+        android:imeSubtypeMode="keyboard"
+        android:imeSubtypeExtraValue="KeyboardLayoutSet=qwerty_hi,AsciiCapable,SupportTouchPositionCorrection,EmojiCapable" />
+</input-method>

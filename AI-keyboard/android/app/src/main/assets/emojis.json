@@ -1,0 +1,579 @@
+{
+  "emojis": [
+    {
+      "unicode": "😀",
+      "description": "grinning face",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["happy", "smile", "grin", "joy", "pleased"],
+      "skin_variants": [],
+      "unicode_version": "6.1"
+    },
+    {
+      "unicode": "😃",
+      "description": "grinning face with big eyes",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["happy", "smile", "joy", "excited"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "😄",
+      "description": "grinning face with smiling eyes",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["happy", "smile", "joy", "laugh"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "😁",
+      "description": "beaming face with smiling eyes",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["happy", "smile", "grin", "beam"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "😆",
+      "description": "grinning squinting face",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["happy", "laugh", "squint", "excited"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "😅",
+      "description": "grinning face with sweat",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["happy", "sweat", "relief", "phew"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🤣",
+      "description": "rolling on the floor laughing",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["laugh", "rofl", "funny", "hilarious"],
+      "skin_variants": [],
+      "unicode_version": "9.0"
+    },
+    {
+      "unicode": "😂",
+      "description": "face with tears of joy",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["laugh", "cry", "tears", "joy", "funny"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🙂",
+      "description": "slightly smiling face",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["smile", "slight", "happy"],
+      "skin_variants": [],
+      "unicode_version": "7.0"
+    },
+    {
+      "unicode": "🙃",
+      "description": "upside-down face",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["upside", "down", "silly", "sarcasm"],
+      "skin_variants": [],
+      "unicode_version": "8.0"
+    },
+    {
+      "unicode": "😉",
+      "description": "winking face",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["wink", "flirt", "joke"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "😊",
+      "description": "smiling face with smiling eyes",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["happy", "smile", "blush", "pleased"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "😇",
+      "description": "smiling face with halo",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["angel", "halo", "innocent", "good"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🥰",
+      "description": "smiling face with hearts",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["love", "hearts", "adore", "crush"],
+      "skin_variants": [],
+      "unicode_version": "11.0"
+    },
+    {
+      "unicode": "😍",
+      "description": "smiling face with heart-eyes",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["love", "heart", "eyes", "adore"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🤩",
+      "description": "star-struck",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["star", "struck", "amazed", "wow"],
+      "skin_variants": [],
+      "unicode_version": "10.0"
+    },
+    {
+      "unicode": "😘",
+      "description": "face blowing a kiss",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["kiss", "blow", "love", "romance"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "😗",
+      "description": "kissing face",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["kiss", "love", "romance"],
+      "skin_variants": [],
+      "unicode_version": "6.1"
+    },
+    {
+      "unicode": "☺️",
+      "description": "smiling face",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["smile", "happy", "pleased"],
+      "skin_variants": [],
+      "unicode_version": "1.1"
+    },
+    {
+      "unicode": "😚",
+      "description": "kissing face with closed eyes",
+      "category": "SMILEYS_EMOTION",
+      "keywords": ["kiss", "closed", "eyes", "love"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "👋",
+      "description": "waving hand",
+      "category": "PEOPLE_BODY",
+      "keywords": ["wave", "hello", "goodbye", "hand", "hi"],
+      "skin_variants": ["👋🏻", "👋🏼", "👋🏽", "👋🏾", "👋🏿"],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🤚",
+      "description": "raised back of hand",
+      "category": "PEOPLE_BODY",
+      "keywords": ["hand", "raised", "back", "stop"],
+      "skin_variants": ["🤚🏻", "🤚🏼", "🤚🏽", "🤚🏾", "🤚🏿"],
+      "unicode_version": "9.0"
+    },
+    {
+      "unicode": "🖐️",
+      "description": "hand with fingers splayed",
+      "category": "PEOPLE_BODY",
+      "keywords": ["hand", "fingers", "splayed", "five"],
+      "skin_variants": ["🖐🏻", "🖐🏼", "🖐🏽", "🖐🏾", "🖐🏿"],
+      "unicode_version": "7.0"
+    },
+    {
+      "unicode": "✋",
+      "description": "raised hand",
+      "category": "PEOPLE_BODY",
+      "keywords": ["hand", "raised", "stop", "halt"],
+      "skin_variants": ["✋🏻", "✋🏼", "✋🏽", "✋🏾", "✋🏿"],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "👌",
+      "description": "OK hand",
+      "category": "PEOPLE_BODY",
+      "keywords": ["ok", "okay", "good", "perfect", "hand"],
+      "skin_variants": ["👌🏻", "👌🏼", "👌🏽", "👌🏾", "👌🏿"],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "✌️",
+      "description": "victory hand",
+      "category": "PEOPLE_BODY",
+      "keywords": ["victory", "peace", "two", "fingers"],
+      "skin_variants": ["✌🏻", "✌🏼", "✌🏽", "✌🏾", "✌🏿"],
+      "unicode_version": "1.1"
+    },
+    {
+      "unicode": "🤞",
+      "description": "crossed fingers",
+      "category": "PEOPLE_BODY",
+      "keywords": ["cross", "fingers", "luck", "hope"],
+      "skin_variants": ["🤞🏻", "🤞🏼", "🤞🏽", "🤞🏾", "🤞🏿"],
+      "unicode_version": "9.0"
+    },
+    {
+      "unicode": "👍",
+      "description": "thumbs up",
+      "category": "PEOPLE_BODY",
+      "keywords": ["thumbs", "up", "good", "approve", "like"],
+      "skin_variants": ["👍🏻", "👍🏼", "👍🏽", "👍🏾", "👍🏿"],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "👎",
+      "description": "thumbs down",
+      "category": "PEOPLE_BODY",
+      "keywords": ["thumbs", "down", "bad", "disapprove", "dislike"],
+      "skin_variants": ["👎🏻", "👎🏼", "👎🏽", "👎🏾", "👎🏿"],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "👏",
+      "description": "clapping hands",
+      "category": "PEOPLE_BODY",
+      "keywords": ["clap", "applause", "praise", "congratulations"],
+      "skin_variants": ["👏🏻", "👏🏼", "👏🏽", "👏🏾", "👏🏿"],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🙌",
+      "description": "raising hands",
+      "category": "PEOPLE_BODY",
+      "keywords": ["raise", "hands", "celebration", "praise", "hooray"],
+      "skin_variants": ["🙌🏻", "🙌🏼", "🙌🏽", "🙌🏾", "🙌🏿"],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🙏",
+      "description": "folded hands",
+      "category": "PEOPLE_BODY",
+      "keywords": ["fold", "hands", "pray", "thanks", "please"],
+      "skin_variants": ["🙏🏻", "🙏🏼", "🙏🏽", "🙏🏾", "🙏🏿"],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "❤️",
+      "description": "red heart",
+      "category": "SYMBOLS",
+      "keywords": ["heart", "love", "red", "romance"],
+      "skin_variants": [],
+      "unicode_version": "1.1"
+    },
+    {
+      "unicode": "🧡",
+      "description": "orange heart",
+      "category": "SYMBOLS",
+      "keywords": ["heart", "orange", "love"],
+      "skin_variants": [],
+      "unicode_version": "10.0"
+    },
+    {
+      "unicode": "💛",
+      "description": "yellow heart",
+      "category": "SYMBOLS",
+      "keywords": ["heart", "yellow", "love", "friendship"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "💚",
+      "description": "green heart",
+      "category": "SYMBOLS",
+      "keywords": ["heart", "green", "love", "nature"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "💙",
+      "description": "blue heart",
+      "category": "SYMBOLS",
+      "keywords": ["heart", "blue", "love", "trust"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "💜",
+      "description": "purple heart",
+      "category": "SYMBOLS",
+      "keywords": ["heart", "purple", "love"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🖤",
+      "description": "black heart",
+      "category": "SYMBOLS",
+      "keywords": ["heart", "black", "dark", "love"],
+      "skin_variants": [],
+      "unicode_version": "9.0"
+    },
+    {
+      "unicode": "🤍",
+      "description": "white heart",
+      "category": "SYMBOLS",
+      "keywords": ["heart", "white", "pure", "love"],
+      "skin_variants": [],
+      "unicode_version": "12.0"
+    },
+    {
+      "unicode": "🔥",
+      "description": "fire",
+      "category": "SYMBOLS",
+      "keywords": ["fire", "hot", "awesome", "cool", "lit"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "⭐",
+      "description": "star",
+      "category": "SYMBOLS",
+      "keywords": ["star", "favorite", "awesome", "good"],
+      "skin_variants": [],
+      "unicode_version": "5.1"
+    },
+    {
+      "unicode": "🎉",
+      "description": "party popper",
+      "category": "ACTIVITIES",
+      "keywords": ["party", "celebration", "confetti", "tada", "congrats"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🎊",
+      "description": "confetti ball",
+      "category": "ACTIVITIES",
+      "keywords": ["confetti", "party", "celebration", "ball"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🎈",
+      "description": "balloon",
+      "category": "ACTIVITIES",
+      "keywords": ["balloon", "party", "celebration", "birthday"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🎂",
+      "description": "birthday cake",
+      "category": "FOOD_DRINK",
+      "keywords": ["cake", "birthday", "celebration", "dessert"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🍕",
+      "description": "pizza",
+      "category": "FOOD_DRINK",
+      "keywords": ["pizza", "food", "italian", "slice"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🍔",
+      "description": "hamburger",
+      "category": "FOOD_DRINK",
+      "keywords": ["burger", "hamburger", "food", "fast"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🍟",
+      "description": "french fries",
+      "category": "FOOD_DRINK",
+      "keywords": ["fries", "french", "food", "fast"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "☕",
+      "description": "hot beverage",
+      "category": "FOOD_DRINK",
+      "keywords": ["coffee", "tea", "hot", "drink", "beverage"],
+      "skin_variants": [],
+      "unicode_version": "4.0"
+    },
+    {
+      "unicode": "🐶",
+      "description": "dog face",
+      "category": "ANIMALS_NATURE",
+      "keywords": ["dog", "puppy", "pet", "animal", "cute"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🐱",
+      "description": "cat face",
+      "category": "ANIMALS_NATURE",
+      "keywords": ["cat", "kitten", "pet", "animal", "cute"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🦄",
+      "description": "unicorn",
+      "category": "ANIMALS_NATURE",
+      "keywords": ["unicorn", "magical", "fantasy", "horse"],
+      "skin_variants": [],
+      "unicode_version": "8.0"
+    },
+    {
+      "unicode": "🚗",
+      "description": "automobile",
+      "category": "TRAVEL_PLACES",
+      "keywords": ["car", "automobile", "vehicle", "transport"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "✈️",
+      "description": "airplane",
+      "category": "TRAVEL_PLACES",
+      "keywords": ["airplane", "plane", "travel", "flight"],
+      "skin_variants": [],
+      "unicode_version": "1.1"
+    },
+    {
+      "unicode": "🏠",
+      "description": "house",
+      "category": "TRAVEL_PLACES",
+      "keywords": ["house", "home", "building"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "💡",
+      "description": "light bulb",
+      "category": "OBJECTS",
+      "keywords": ["bulb", "light", "idea", "bright"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "📱",
+      "description": "mobile phone",
+      "category": "OBJECTS",
+      "keywords": ["phone", "mobile", "cell", "smartphone"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "💻",
+      "description": "laptop computer",
+      "category": "OBJECTS",
+      "keywords": ["laptop", "computer", "pc", "technology"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🎵",
+      "description": "musical note",
+      "category": "OBJECTS",
+      "keywords": ["music", "note", "song", "melody"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🇺🇸",
+      "description": "flag: United States",
+      "category": "FLAGS",
+      "keywords": ["flag", "united", "states", "america", "usa"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🇬🇧",
+      "description": "flag: United Kingdom",
+      "category": "FLAGS",
+      "keywords": ["flag", "united", "kingdom", "britain", "uk"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🇫🇷",
+      "description": "flag: France",
+      "category": "FLAGS",
+      "keywords": ["flag", "france", "french"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🇩🇪",
+      "description": "flag: Germany",
+      "category": "FLAGS",
+      "keywords": ["flag", "germany", "german"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🇪🇸",
+      "description": "flag: Spain",
+      "category": "FLAGS",
+      "keywords": ["flag", "spain", "spanish"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    },
+    {
+      "unicode": "🇮🇳",
+      "description": "flag: India",
+      "category": "FLAGS",
+      "keywords": ["flag", "india", "indian"],
+      "skin_variants": [],
+      "unicode_version": "6.0"
+    }
+  ],
+  "categories": [
+    {
+      "name": "SMILEYS_EMOTION",
+      "icon": "😊",
+      "display_name": "Smileys & Emotion"
+    },
+    {
+      "name": "PEOPLE_BODY",
+      "icon": "👤",
+      "display_name": "People & Body"
+    },
+    {
+      "name": "ANIMALS_NATURE",
+      "icon": "🐶",
+      "display_name": "Animals & Nature"
+    },
+    {
+      "name": "FOOD_DRINK",
+      "icon": "🍔",
+      "display_name": "Food & Drink"
+    },
+    {
+      "name": "ACTIVITIES",
+      "icon": "⚽",
+      "display_name": "Activities"
+    },
+    {
+      "name": "TRAVEL_PLACES",
+      "icon": "🚗",
+      "display_name": "Travel & Places"
+    },
+    {
+      "name": "OBJECTS",
+      "icon": "💡",
+      "display_name": "Objects"
+    },
+    {
+      "name": "SYMBOLS",
+      "icon": "❤️",
+      "display_name": "Symbols"
+    },
+    {
+      "name": "FLAGS",
+      "icon": "🏁",
+      "display_name": "Flags"
+    }
+  ]
+}

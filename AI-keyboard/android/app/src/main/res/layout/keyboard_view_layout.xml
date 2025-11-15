@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.kvive.keyboard.SwipeKeyboardView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/keyboard_view"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/transparent"
+    android:keyBackground="@android:color/transparent"
+    android:keyTextSize="@dimen/key_text_size"
+    android:keyTextColor="@android:color/transparent"
+    android:labelTextSize="@dimen/key_label_text_size"
+    android:verticalCorrection="0dp"
+    android:shadowColor="@android:color/transparent"
+    android:shadowRadius="0" />

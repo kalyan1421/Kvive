@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Transparent key background - minimal placeholder for KeyboardView initialization -->
+<!-- ThemeManager will override this with actual themed drawables in drawThemedKey() -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@android:color/transparent"/>
+    <corners android:radius="@dimen/key_corner_radius"/>
+    <padding android:left="0dp" android:top="0dp" android:right="0dp" android:bottom="0dp"/>
+</shape>
+

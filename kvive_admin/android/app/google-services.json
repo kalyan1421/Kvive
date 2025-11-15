@@ -1,0 +1,82 @@
+{
+  "project_info": {
+    "project_number": "621863637081",
+    "project_id": "aikeyboard-18ed9",
+    "storage_bucket": "aikeyboard-18ed9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:621863637081:android:fe107bf45ecd1a9fbd2148",
+        "android_client_info": {
+          "package_name": "com.example.ai_keyboard"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "621863637081-glee7m3vo4e73g84lss259507bklkm2b.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB9sxIJOWwgc1K-vMXgultq3C-2izZOjjA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "621863637081-glee7m3vo4e73g84lss259507bklkm2b.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "621863637081-j30ml72otqmviv93s2ish0akme47r4pk.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.aiKeyboard"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:621863637081:android:58116233c5b060dbbd2148",
+        "android_client_info": {
+          "package_name": "com.example.kvive_admin"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "621863637081-glee7m3vo4e73g84lss259507bklkm2b.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB9sxIJOWwgc1K-vMXgultq3C-2izZOjjA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "621863637081-glee7m3vo4e73g84lss259507bklkm2b.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "621863637081-j30ml72otqmviv93s2ish0akme47r4pk.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.aiKeyboard"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

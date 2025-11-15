@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dynamic theming attributes -->
+    <attr name="colorAccentDynamic" format="color" />
+    <attr name="colorKeyBgDynamic" format="color" />
+    <attr name="colorKeyTextDynamic" format="color" />
+    <attr name="colorKeyboardBgDynamic" format="color" />
+    
+    <!-- Theme selector for unified theming -->
+    <declare-styleable name="DynamicTheme">
+        <attr name="colorAccentDynamic" />
+        <attr name="colorKeyBgDynamic" />
+        <attr name="colorKeyTextDynamic" />
+        <attr name="colorKeyboardBgDynamic" />
+    </declare-styleable>
+</resources>

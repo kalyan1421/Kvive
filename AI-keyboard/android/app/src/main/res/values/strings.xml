@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Kvive - Ai Writing Keyboard</string>
+    <string name="ime_name">Kvive Keyboard</string>
+    <string name="ime_description">Smart AI-powered keyboard with intelligent suggestions</string>
+    
+    <!-- Keyboard Labels -->
+    <string name="key_space">Space</string>
+    <string name="key_enter">Enter</string>
+    <string name="key_delete">Delete</string>
+    <string name="key_shift">Shift</string>
+    <string name="key_symbols">\?123</string>
+    <string name="key_letters">ABC</string>
+    <string name="key_numbers">123</string>
+    <string name="key_voice">Voice</string>
+    <string name="key_done">Done</string>
+    
+    <!-- Settings -->
+    <string name="settings_title">Kvive Keyboard Settings</string>
+    <string name="theme_title">Keyboard Theme</string>
+    <string name="ai_suggestions_title">AI Suggestions</string>
+    <string name="ai_suggestions_summary">Get smart text predictions and corrections</string>
+    <string name="swipe_typing_title">Swipe Typing</string>
+    <string name="swipe_typing_summary">Type by swiping across letters</string>
+    <string name="voice_input_title">Voice Input</string>
+    <string name="voice_input_summary">Convert speech to text</string>
+    
+    <!-- Theme Names -->
+    <string name="theme_default">Default</string>
+    <string name="theme_dark">Dark</string>
+    <string name="theme_material_you">Material You</string>
+    <string name="theme_professional">Professional</string>
+    <string name="theme_colorful">Colorful</string>
+    
+    <!-- Messages -->
+    <string name="voice_input_coming_soon">Voice input feature coming soon!</string>
+    <string name="voice_input_not_available">Voice input not available</string>
+    <string name="voice_input_listening">Listening...</string>
+    <string name="voice_input_error">Unable to start voice input</string>
+    <string name="voice_input_permission_required">Microphone permission required for voice input</string>
+    <string name="voice_input_permission_granted">Microphone permission granted</string>
+    <string name="voice_input_prompt_title">Try saying something</string>
+    <string name="voice_input_prompt_subtitle">We\'ll turn your speech into text</string>
+    <string name="voice_input_error_no_match">Didn\'t catch that. Try again.</string>
+    <string name="voice_input_error_timeout">Still listening... try speaking again.</string>
+    <string name="voice_input_error_retry">Restarting voice input...</string>
+    <string name="voice_input_error_network">Network issue. Check your connection.</string>
+    <string name="keyboard_not_enabled">Please enable Kvive Keyboard in system settings</string>
+    <string name="keyboard_not_active">Please select Kvive Keyboard as your input method</string>
+    
+    <!-- Additional Strings for Keyboard Service -->
+    <string name="english_ime_name">Kvive Keyboard</string>
+    <string name="english_ime_settings">Kvive Keyboard Settings</string>
+    <string name="ai_keyboard_name">Kvive Keyboard</string>
+    
+    <!-- Emoji Panel -->
+    <string name="emoji_search">Search emojis</string>
+    <string name="search_emojis">Search emojis</string>
+    <string name="emoji_skin_tone">Skin tone</string>
+    <string name="abc">ABC</string>
+    <string name="space">Space</string>
+    <string name="send">Send</string>
+    <string name="delete">Delete</string>
+    
+    <!-- Toolbar -->
+    <string name="toolbar_settings">Keyboard settings</string>
+    <string name="toolbar_voice">Voice input</string>
+    <string name="toolbar_emoji">Emoji panel</string>
+    <string name="toolbar_clipboard">Clipboard history</string>
+    <string name="toolbar_ai_assistant">AI assistant</string>
+    <string name="toolbar_grammar">Grammar tools</string>
+    <string name="toolbar_tone">Tone editor</string>
+    
+    <!-- Suggestions -->
+    <string name="suggestion_placeholder">Suggest</string>
+
+    <!-- AI Panel -->
+    <string name="ai_panel_button_back">Back to Keyboard</string>
+    <string name="ai_panel_button_replace">Replace Text</string>
+    <string name="ai_panel_status_prompt">Type something to try AI Writing Assistance.</string>
+    <string name="panel_prompt_grammar">Type something to fix Grammar.</string>
+    <string name="panel_prompt_tone">Type something to adjust Tone.</string>
+    <string name="translation_loading">Translating to %1$s...</string>
+    <string name="translation_error">Translation unavailable (%1$s)</string>
+    <string name="keyboard_button_back">Back to keyboard</string>
+    <string name="panel_result_pending">Results will appear here…</string>
+    
+    <!-- One-handed controls -->
+    <string name="one_hand_expand">Expand keyboard to full width</string>
+    <string name="one_hand_switch_side">Move keyboard to other side</string>
+</resources>

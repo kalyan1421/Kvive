@@ -1,0 +1,190 @@
+{
+  "gif_collections": {
+    "reactions": [
+      {
+        "id": "thumbs_up_001",
+        "title": "Thumbs Up",
+        "tags": ["approval", "yes", "good", "like", "positive"],
+        "file": "reactions/thumbs_up_001.gif",
+        "thumbnail": "reactions/thumbs/thumbs_up_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 45320
+      },
+      {
+        "id": "applause_001",
+        "title": "Applause",
+        "tags": ["clapping", "appreciation", "bravo", "good job", "congratulations"],
+        "file": "reactions/applause_001.gif",
+        "thumbnail": "reactions/thumbs/applause_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 67890
+      },
+      {
+        "id": "laughing_001",
+        "title": "Laughing",
+        "tags": ["laugh", "funny", "hilarious", "lol", "humor"],
+        "file": "reactions/laughing_001.gif",
+        "thumbnail": "reactions/thumbs/laughing_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 52340
+      },
+      {
+        "id": "crying_001",
+        "title": "Crying",
+        "tags": ["cry", "sad", "tears", "emotional", "upset"],
+        "file": "reactions/crying_001.gif",
+        "thumbnail": "reactions/thumbs/crying_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 48920
+      },
+      {
+        "id": "shocked_001",
+        "title": "Shocked",
+        "tags": ["shock", "surprise", "amazed", "wow", "omg"],
+        "file": "reactions/shocked_001.gif",
+        "thumbnail": "reactions/thumbs/shocked_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 41230
+      },
+      {
+        "id": "thinking_001",
+        "title": "Thinking",
+        "tags": ["think", "ponder", "consider", "hmm", "wonder"],
+        "file": "reactions/thinking_001.gif",
+        "thumbnail": "reactions/thumbs/thinking_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 39850
+      },
+      {
+        "id": "facepalm_001",
+        "title": "Facepalm",
+        "tags": ["facepalm", "disappointed", "frustrated", "annoyed"],
+        "file": "reactions/facepalm_001.gif",
+        "thumbnail": "reactions/thumbs/facepalm_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 44560
+      },
+      {
+        "id": "shrug_001",
+        "title": "Shrug",
+        "tags": ["shrug", "dunno", "whatever", "idk", "indifferent"],
+        "file": "reactions/shrug_001.gif",
+        "thumbnail": "reactions/thumbs/shrug_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 36720
+      }
+    ],
+    "celebrations": [
+      {
+        "id": "party_001",
+        "title": "Party Time",
+        "tags": ["party", "dance", "celebration", "fun", "exciting"],
+        "file": "celebrations/party_001.gif",
+        "thumbnail": "celebrations/thumbs/party_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 89750
+      },
+      {
+        "id": "confetti_001",
+        "title": "Confetti",
+        "tags": ["confetti", "celebration", "party", "congrats", "achievement"],
+        "file": "celebrations/confetti_001.gif",
+        "thumbnail": "celebrations/thumbs/confetti_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 76420
+      },
+      {
+        "id": "fireworks_001",
+        "title": "Fireworks",
+        "tags": ["fireworks", "celebration", "new year", "party", "spectacular"],
+        "file": "celebrations/fireworks_001.gif",
+        "thumbnail": "celebrations/thumbs/fireworks_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 95680
+      },
+      {
+        "id": "champagne_001",
+        "title": "Champagne Pop",
+        "tags": ["champagne", "celebration", "cheers", "success", "victory"],
+        "file": "celebrations/champagne_001.gif",
+        "thumbnail": "celebrations/thumbs/champagne_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 68340
+      },
+      {
+        "id": "birthday_001",
+        "title": "Happy Birthday",
+        "tags": ["birthday", "cake", "candles", "celebration", "party"],
+        "file": "celebrations/birthday_001.gif",
+        "thumbnail": "celebrations/thumbs/birthday_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 72150
+      }
+    ],
+    "activities": [
+      {
+        "id": "dancing_001",
+        "title": "Dancing",
+        "tags": ["dance", "music", "rhythm", "fun", "groove"],
+        "file": "activities/dancing_001.gif",
+        "thumbnail": "activities/thumbs/dancing_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 84320
+      },
+      {
+        "id": "sleeping_001",
+        "title": "Sleeping",
+        "tags": ["sleep", "tired", "rest", "zzz", "nap"],
+        "file": "activities/sleeping_001.gif",
+        "thumbnail": "activities/thumbs/sleeping_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 42890
+      },
+      {
+        "id": "working_001",
+        "title": "Working Hard",
+        "tags": ["work", "busy", "typing", "computer", "productive"],
+        "file": "activities/working_001.gif",
+        "thumbnail": "activities/thumbs/working_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 56740
+      },
+      {
+        "id": "exercising_001",
+        "title": "Exercising",
+        "tags": ["exercise", "workout", "fitness", "gym", "healthy"],
+        "file": "activities/exercising_001.gif",
+        "thumbnail": "activities/thumbs/exercising_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 71230
+      },
+      {
+        "id": "eating_001",
+        "title": "Eating",
+        "tags": ["eat", "food", "hungry", "delicious", "yum"],
+        "file": "activities/eating_001.gif",
+        "thumbnail": "activities/thumbs/eating_001.png",
+        "width": 320,
+        "height": 240,
+        "file_size": 63450
+      }
+    ]
+  }
+}

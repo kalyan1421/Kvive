@@ -1,0 +1,12 @@
+{
+  "name": "INSCRIPT",
+  "description": "Standard INSCRIPT layout for Indic languages",
+  "rows": [
+    ["q", "w", "e", "r", "t", "y", "u", "i", "o", "p"],
+    ["a", "s", "d", "f", "g", "h", "j", "k", "l", ";"],
+    ["z", "x", "c", "v", "b", "n", "m", ",", ".", "/"],
+    ["SHIFT", "[", "]", "\\", "1", "2", "3", "4", "DELETE"],
+    ["?123", "GLOBE", ",", "SPACE", ".", "RETURN"]
+  ]
+}
+

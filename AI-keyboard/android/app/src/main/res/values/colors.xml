@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Legacy colors kept for compatibility only -->
+    <!-- All theming should now use ThemeManager V2 -->
+    
+    <!-- Transparent fallbacks -->
+    <color name="transparent">#00000000</color>
+    
+    <!-- Voice input overlay -->
+    <color name="voice_input_background">#121212</color>
+    <color name="voice_input_button_bg">#FFFFFFFF</color>
+    <color name="voice_input_button_bg_active">#FFF3E0</color>
+    <color name="voice_input_mic_default">#FF9800</color>
+    <color name="voice_input_mic_active">#FFC107</color>
+    
+    <!-- System colors that cannot be themed -->
+    <color name="system_error">#F44336</color>
+    <color name="system_success">#4CAF50</color>
+    <color name="system_warning">#FF9800</color>
+    
+    <!-- Menu system colors (non-themed) -->
+    <color name="menu_separator">#E0E0E0</color>
+    <color name="menu_text_color">#212121</color>
+    <color name="menu_icon_color">#757575</color>
+    
+    <!-- Keyboard panel colors (themeable - defaults for dark mode) -->
+    <color name="kb_panel_bg">#22252B</color>
+    <color name="kb_toolbar_bg">#1B1E23</color>
+    <color name="kb_key_bg">#2B2F36</color>
+    <color name="kb_key_bg_pressed">#3A3F47</color>
+    <color name="kb_text_primary">#FFFFFF</color>
+    <color name="kb_text_secondary">#B0B0B0</color>
+    <color name="kb_icon_tint">#E0E0E0</color>
+    
+    <!-- One-handed mode -->
+    <color name="one_hand_panel_bg">#FF1F2126</color>
+    <color name="one_hand_panel_icon">#FFFFFFFF</color>
+    <color name="one_hand_panel_icon_dim">#B3FFFFFF</color>
+    <color name="one_hand_panel_ripple">#33FFFFFF</color>
+    
+    <!-- Note: All keyboard colors are now managed by ThemeManager V2 -->
+    <!-- Remove hardcoded theme colors to prevent conflicts -->
+    <color name="ic_launcher_background">#FFFFFF</color>
+</resources>

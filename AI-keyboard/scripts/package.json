@@ -1,0 +1,20 @@
+{
+  "name": "ai-keyboard-firestore-tools",
+  "version": "1.0.0",
+  "description": "Firestore word frequency population tools for AI Keyboard",
+  "main": "populate_word_frequency.js",
+  "scripts": {
+    "populate": "node populate_word_frequency.js",
+    "deploy-rules": "cd .. && firebase deploy --only firestore:rules"
+  },
+  "keywords": ["firestore", "word-frequency", "autocorrect", "nlp"],
+  "author": "AI Keyboard Team",
+  "license": "MIT",
+  "dependencies": {
+    "firebase-admin": "^12.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+

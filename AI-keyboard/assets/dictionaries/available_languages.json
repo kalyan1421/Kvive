@@ -1,0 +1,260 @@
+{
+  "languages": [
+    {
+      "code": "en",
+      "name": "English",
+      "nativeName": "English",
+      "font": "fonts/NotoSans-Regular.ttf",
+      "template": "qwerty_template.json",
+      "firebase": true
+    },
+    {
+      "code": "hi",
+      "name": "Hindi",
+      "nativeName": "हिन्दी",
+      "font": "fonts/NotoSansDevanagari-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": true
+    },
+    {
+      "code": "te",
+      "name": "Telugu",
+      "nativeName": "తెలుగు",
+      "font": "fonts/NotoSansTelugu-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": false
+    },
+    {
+      "code": "ta",
+      "name": "Tamil",
+      "nativeName": "தமிழ்",
+      "font": "fonts/NotoSansTamil-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": false
+    },
+    {
+      "code": "kn",
+      "name": "Kannada",
+      "nativeName": "ಕನ್ನಡ",
+      "font": "fonts/NotoSansKannada-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": false
+    },
+    {
+      "code": "ml",
+      "name": "Malayalam",
+      "nativeName": "മലയാളം",
+      "font": "fonts/NotoSansMalayalam-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": false
+    },
+    {
+      "code": "bn",
+      "name": "Bengali",
+      "nativeName": "বাংলা",
+      "font": "fonts/NotoSansBengali-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": false
+    },
+    {
+      "code": "gu",
+      "name": "Gujarati",
+      "nativeName": "ગુજરાતી",
+      "font": "fonts/NotoSansGujarati-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": false
+    },
+    {
+      "code": "mr",
+      "name": "Marathi",
+      "nativeName": "मराठी",
+      "font": "fonts/NotoSansDevanagari-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": false
+    },
+    {
+      "code": "or",
+      "name": "Odia",
+      "nativeName": "ଓଡ଼ିଆ",
+      "font": "fonts/NotoSansOriya-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": false
+    },
+    {
+      "code": "pa",
+      "name": "Punjabi",
+      "nativeName": "ਪੰਜਾਬੀ",
+      "font": "fonts/NotoSansGurmukhi-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": false
+    },
+    {
+      "code": "as",
+      "name": "Assamese",
+      "nativeName": "অসমীয়া",
+      "font": "fonts/NotoSansBengali-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": false
+    },
+    {
+      "code": "ur",
+      "name": "Urdu",
+      "nativeName": "اردو",
+      "font": "fonts/NotoNaskhArabic-Regular.ttf",
+      "template": "arabic_template.json",
+      "firebase": true
+    },
+    {
+      "code": "sa",
+      "name": "Sanskrit",
+      "nativeName": "संस्कृतम्",
+      "font": "fonts/NotoSansDevanagari-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": false
+    },
+    {
+      "code": "kok",
+      "name": "Konkani",
+      "nativeName": "कोंकणी",
+      "font": "fonts/NotoSansDevanagari-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": false
+    },
+    {
+      "code": "sd",
+      "name": "Sindhi",
+      "nativeName": "سنڌي",
+      "font": "fonts/NotoNaskhArabic-Regular.ttf",
+      "template": "arabic_template.json",
+      "firebase": false
+    },
+    {
+      "code": "ne",
+      "name": "Nepali",
+      "nativeName": "नेपाली",
+      "font": "fonts/NotoSansDevanagari-Regular.ttf",
+      "template": "inscript_template.json",
+      "firebase": false
+    },
+    {
+      "code": "ks",
+      "name": "Kashmiri",
+      "nativeName": "کٲشُر",
+      "font": "fonts/NotoNaskhArabic-Regular.ttf",
+      "template": "arabic_template.json",
+      "firebase": false
+    },
+    {
+      "code": "es",
+      "name": "Spanish",
+      "nativeName": "Español",
+      "font": "fonts/NotoSans-Regular.ttf",
+      "template": "qwerty_template.json",
+      "firebase": true
+    },
+    {
+      "code": "fr",
+      "name": "French",
+      "nativeName": "Français",
+      "font": "fonts/NotoSans-Regular.ttf",
+      "template": "qwerty_template.json",
+      "firebase": true
+    },
+    {
+      "code": "de",
+      "name": "German",
+      "nativeName": "Deutsch",
+      "font": "fonts/NotoSans-Regular.ttf",
+      "template": "qwerty_template.json",
+      "firebase": true
+    },
+    {
+      "code": "it",
+      "name": "Italian",
+      "nativeName": "Italiano",
+      "font": "fonts/NotoSans-Regular.ttf",
+      "template": "qwerty_template.json",
+      "firebase": true
+    },
+    {
+      "code": "pt",
+      "name": "Portuguese",
+      "nativeName": "Português",
+      "font": "fonts/NotoSans-Regular.ttf",
+      "template": "qwerty_template.json",
+      "firebase": true
+    },
+    {
+      "code": "ru",
+      "name": "Russian",
+      "nativeName": "Русский",
+      "font": "fonts/NotoSans-Regular.ttf",
+      "template": "qwerty_template.json",
+      "firebase": true
+    },
+    {
+      "code": "zh",
+      "name": "Chinese (Simplified)",
+      "nativeName": "中文",
+      "font": "fonts/NotoSansSC-Regular.ttf",
+      "template": "qwerty_template.json",
+      "firebase": true
+    },
+    {
+      "code": "ja",
+      "name": "Japanese",
+      "nativeName": "日本語",
+      "font": "fonts/NotoSansJP-Regular.ttf",
+      "template": "qwerty_template.json",
+      "firebase": true
+    },
+    {
+      "code": "ko",
+      "name": "Korean",
+      "nativeName": "한국어",
+      "font": "fonts/NotoSansKR-Regular.ttf",
+      "template": "qwerty_template.json",
+      "firebase": true
+    },
+    {
+      "code": "th",
+      "name": "Thai",
+      "nativeName": "ไทย",
+      "font": "fonts/NotoSansThai-Regular.ttf",
+      "template": "qwerty_template.json",
+      "firebase": true
+    },
+    {
+      "code": "ar",
+      "name": "Arabic",
+      "nativeName": "العربية",
+      "font": "fonts/NotoNaskhArabic-Regular.ttf",
+      "template": "arabic_template.json",
+      "firebase": true
+    },
+    {
+      "code": "fa",
+      "name": "Persian",
+      "nativeName": "فارسی",
+      "font": "fonts/NotoNaskhArabic-Regular.ttf",
+      "template": "arabic_template.json",
+      "firebase": true
+    },
+    {
+      "code": "tr",
+      "name": "Turkish",
+      "nativeName": "Türkçe",
+      "font": "fonts/NotoSans-Regular.ttf",
+      "template": "qwerty_template.json",
+      "firebase": true
+    },
+    {
+      "code": "id",
+      "name": "Indonesian",
+      "nativeName": "Bahasa Indonesia",
+      "font": "fonts/NotoSans-Regular.ttf",
+      "template": "qwerty_template.json",
+      "firebase": true
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Clipboard Panel IDs -->
+    <item name="clipboard_item_text" type="id" />
+    <item name="clipboard_item_info" type="id" />
+    <item name="clipboard_item_pin" type="id" />
+    <item name="clipboard_item_delete" type="id" />
+    
+    <!-- Additional UI element IDs -->
+    <item name="clipboard_panel_header" type="id" />
+    <item name="clipboard_panel_recycler" type="id" />
+    <item name="clipboard_panel_empty" type="id" />
+</resources>

@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Key dimensions - Base values for small screens (<360dp width) -->
+    <!-- ABSOLUTE MAXIMUM size keys with near-zero gaps -->
+    <dimen name="key_height">54dp</dimen>
+    <dimen name="key_width">9.5%p</dimen>
+    <dimen name="key_text_size">16sp</dimen>
+    <dimen name="key_label_text_size">12sp</dimen>
+    <dimen name="key_preview_height">74dp</dimen>
+    <dimen name="key_preview_text_size">22sp</dimen>
+    
+    <!-- Icon sizes -->
+    <dimen name="key_icon_size">24dp</dimen>
+    <dimen name="toolbar_icon_size">24dp</dimen>
+    <dimen name="toolbar_button_size">36dp</dimen>  <!-- Compact touch target -->
+    
+    <!-- Suggestion bar - Base values -->
+    <dimen name="suggestion_text_size">14sp</dimen>
+    <dimen name="suggestion_padding">10dp</dimen>
+    <dimen name="suggestion_margin">4dp</dimen>
+    <dimen name="suggestion_bar_height">40dp</dimen>
+    
+    <!-- Toolbar dimensions - Base values, overridden by screen-size specific files -->
+    <dimen name="toolbar_height">64dp</dimen>
+    <dimen name="toolbar_button_padding">6dp</dimen>
+    <dimen name="toolbar_min_touch_target">48dp</dimen>
+    
+    
+    <!-- Keyboard spacing - Minimal for maximum keys -->
+    <dimen name="keyboard_vertical_gap">1dp</dimen>
+    <dimen name="keyboard_horizontal_gap">2dp</dimen>
+    <dimen name="keyboard_padding_left">1dp</dimen>
+    <dimen name="keyboard_padding_right">1dp</dimen>
+    <dimen name="keyboard_padding_top">1dp</dimen>
+    <dimen name="keyboard_padding_bottom">0dp</dimen>
+    <dimen name="key_padding_horizontal">3dp</dimen>
+    <dimen name="key_padding_vertical">3dp</dimen>
+    
+    <!-- Special keys - Base values for small screens -->
+    <dimen name="special_key_width">60dp</dimen>
+    <dimen name="space_key_min_width">180dp</dimen>
+    
+    <!-- Adaptive key dimensions for different screen sizes -->
+    <dimen name="adaptive_key_width">38dp</dimen>
+    <dimen name="adaptive_key_height">54dp</dimen>
+    <dimen name="adaptive_key_width_small">30dp</dimen>
+    <dimen name="adaptive_key_height_small">48dp</dimen>
+    <dimen name="adaptive_key_width_large">40dp</dimen>
+    <dimen name="adaptive_key_height_large">58dp</dimen>
+    <dimen name="adaptive_key_width_xlarge">44dp</dimen>
+    <dimen name="adaptive_key_height_xlarge">64dp</dimen>
+    
+    <!-- Touch target expansion for small screens -->
+    <dimen name="touch_target_expansion">4dp</dimen>
+    <dimen name="small_screen_touch_expansion">6dp</dimen>
+    
+    <!-- Floating keyboard dimensions -->
+    <dimen name="floating_keyboard_width">320dp</dimen>
+    <dimen name="floating_keyboard_height">200dp</dimen>
+    <dimen name="floating_keyboard_margin">16dp</dimen>
+    
+    <!-- Split keyboard dimensions -->
+    <dimen name="split_keyboard_gap">80dp</dimen>
+    <dimen name="split_keyboard_half_width">35%p</dimen>
+    
+    <!-- Visual styling - Modern rounded corners with elevation -->
+    <dimen name="key_corner_radius">2dp</dimen>
+    <dimen name="key_elevation">3dp</dimen>
+    <dimen name="key_pressed_elevation">6dp</dimen>
+    <dimen name="key_shadow_offset">2dp</dimen>
+    <dimen name="key_pressed_shadow_offset">3dp</dimen>
+    <dimen name="suggestion_elevation">2dp</dimen>
+    <dimen name="popup_elevation">8dp</dimen>
+    <dimen name="floating_keyboard_elevation">12dp</dimen>
+    
+    <!-- Spacing and margins - Minimal for maximum keys -->
+    <dimen name="row_vertical_gap">1dp</dimen>
+    <dimen name="key_horizontal_gap">2dp</dimen>
+    <dimen name="suggestion_chip_padding">14dp</dimen>
+    <dimen name="popup_padding">10dp</dimen>
+    
+    <!-- Gesture detection thresholds -->
+    <dimen name="spacebar_gesture_threshold">50dp</dimen>
+    <dimen name="cursor_control_sensitivity">15dp</dimen>
+    
+    <!-- Fixed keyboard height to prevent resizing when switching panels (like Gboard) -->
+    <!-- Fixed height disabled for adaptive sizing - height calculated dynamically -->
+    <dimen name="keyboard_fixed_height">260dp</dimen>
+    <dimen name="panel_content_height">252dp</dimen>
+    
+    <!-- Keyboard default/minimum height for consistent sizing -->
+    <dimen name="keyboard_default_height">260dp</dimen>
+    
+    <!-- Navigation bar compensation -->
+    <dimen name="navigation_bar_padding">0dp</dimen>
+    <dimen name="keyboard_bottom_padding">0dp</dimen>
+</resources>

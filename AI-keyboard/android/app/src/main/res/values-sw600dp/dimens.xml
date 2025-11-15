@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Tablet screens (600dp+ width) - Gboard proportions scaled up -->
+    
+    <!-- Key dimensions - ABSOLUTE MAXIMUM for tablets -->
+    <dimen name="key_height">58dp</dimen>
+    <dimen name="key_width">9.5%p</dimen>
+    <dimen name="key_text_size">20sp</dimen>
+    <dimen name="key_label_text_size">16sp</dimen>
+    <dimen name="key_preview_height">96dp</dimen>
+    <dimen name="key_preview_text_size">30sp</dimen>
+    
+    <!-- Icon sizes for tablets -->
+    <dimen name="key_icon_size">30dp</dimen>
+    <dimen name="toolbar_icon_size">32dp</dimen>
+    
+    <!-- Toolbar and suggestion bar -->
+    <dimen name="toolbar_height">64dp</dimen>
+    <dimen name="suggestion_bar_height">40dp</dimen>
+    <dimen name="suggestion_text_size">16sp</dimen>
+    <dimen name="toolbar_button_size">40dp</dimen>  <!-- Compact touch target -->
+    
+    <!-- Keyboard spacing - Minimal for tablets -->
+    <dimen name="keyboard_vertical_gap">2dp</dimen>
+    <dimen name="keyboard_horizontal_gap">3dp</dimen>
+    <dimen name="keyboard_padding_left">2dp</dimen>
+    <dimen name="keyboard_padding_right">2dp</dimen>
+    <dimen name="keyboard_padding_top">2dp</dimen>
+    <dimen name="keyboard_padding_bottom">0dp</dimen>
+    <dimen name="key_padding_horizontal">3dp</dimen>
+    <dimen name="key_padding_vertical">3dp</dimen>
+    
+    <!-- Row and key spacing -->
+    <dimen name="row_vertical_gap">2dp</dimen>
+    <dimen name="key_horizontal_gap">3dp</dimen>
+    
+    <!-- Corner radius - Modern rounded corners for tablets -->
+    <dimen name="key_corner_radius">6dp</dimen>
+    
+    <!-- Special keys for tablets -->
+    <dimen name="special_key_width">84dp</dimen>
+    <dimen name="space_key_min_width">280dp</dimen>
+</resources>

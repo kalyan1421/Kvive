@@ -1,0 +1,10 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:viewportWidth="24"
+    android:viewportHeight="25"
+    android:width="24dp"
+    android:height="25dp">
+    <!-- Simplified emoji icon for dynamic theming - single color, will be tinted -->
+    <path
+        android:pathData="M12,2C6.48,2 2,6.48 2,12C2,17.52 6.48,22 12,22C17.52,22 22,17.52 22,12C22,6.48 17.52,2 12,2ZM8.5,9C9.33,9 10,9.67 10,10.5C10,11.33 9.33,12 8.5,12C7.67,12 7,11.33 7,10.5C7,9.67 7.67,9 8.5,9ZM12,18C9.67,18 7.69,16.64 6.89,14.75L17.11,14.75C16.31,16.64 14.33,18 12,18ZM15.5,12C14.67,12 14,11.33 14,10.5C14,9.67 14.67,9 15.5,9C16.33,9 17,9.67 17,10.5C17,11.33 16.33,12 15.5,12Z"
+        android:fillColor="#FFFFFF" />
+</vector>

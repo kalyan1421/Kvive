@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Standard phone screens (360dp+ width) - Gboard exact measurements -->
+    
+    <!-- Key dimensions - ABSOLUTE MAXIMUM size -->
+    <dimen name="key_height">54dp</dimen>
+    <dimen name="key_width">9.5%p</dimen>
+    <dimen name="key_text_size">16sp</dimen>
+    <dimen name="key_label_text_size">12sp</dimen>
+    <dimen name="key_preview_height">78dp</dimen>
+    <dimen name="key_preview_text_size">24sp</dimen>
+    
+    <!-- Toolbar and suggestion bar -->
+    <dimen name="toolbar_height">64dp</dimen>
+    <dimen name="suggestion_bar_height">40dp</dimen>
+    <dimen name="suggestion_text_size">14sp</dimen>
+    <dimen name="toolbar_button_size">36dp</dimen>  <!-- Compact touch target -->
+    
+    <!-- Keyboard spacing - Minimal for maximum keys -->
+    <dimen name="keyboard_vertical_gap">1dp</dimen>
+    <dimen name="keyboard_horizontal_gap">2dp</dimen>
+    <dimen name="keyboard_padding_left">1dp</dimen>
+    <dimen name="keyboard_padding_right">1dp</dimen>
+    <dimen name="keyboard_padding_top">1dp</dimen>
+    <dimen name="keyboard_padding_bottom">0dp</dimen>
+    <dimen name="key_padding_horizontal">3dp</dimen>
+    <dimen name="key_padding_vertical">3dp</dimen>
+    
+    <!-- Row and key spacing -->
+    <dimen name="row_vertical_gap">1dp</dimen>
+    <dimen name="key_horizontal_gap">2dp</dimen>
+    
+    <!-- Corner radius - Modern rounded corners -->
+    <dimen name="key_corner_radius">5dp</dimen>
+    
+    <!-- Special keys -->
+    <dimen name="special_key_width">64dp</dimen>
+    <dimen name="space_key_min_width">180dp</dimen>
+</resources>

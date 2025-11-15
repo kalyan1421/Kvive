@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Theme applied to the Android Window while the process is starting when the OS's Dark Mode setting is off -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <!-- Show a splash screen on the activity. Automatically removed when
+             the Flutter engine draws its first frame -->
+        <item name="android:windowBackground">@drawable/launch_background</item>
+    </style>
+    <!-- Theme applied to the Android Window as soon as the process has started.
+         This theme determines the color of the Android Window while your
+         Flutter UI initializes, as well as behind your Flutter UI while its
+         running.
+
+         This Theme is only used starting with V2 of Flutter's Android embedding. -->
+    <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">?android:colorBackground</item>
+    </style>
+    
+    <!-- Keyboard Theme -->
+    <style name="KeyboardTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.InputMethod</item>
+    </style>
+    
+    <!-- Keyboard View Style - XML drawables removed to allow programmatic theming -->
+    <style name="KeyboardView">
+        <!-- Removed: android:background and android:keyBackground to prevent XML override -->
+        <item name="android:keyPreviewLayout">@layout/keyboard_key_preview</item>
+        <item name="android:keyPreviewOffset">-12dp</item>
+        <item name="android:keyPreviewHeight">@dimen/key_preview_height</item>
+        <item name="android:keyTextSize">@dimen/key_text_size</item>
+        <!-- Removed: android:keyTextColor to allow theme-based text coloring -->
+        <item name="android:labelTextSize">@dimen/key_label_text_size</item>
+        <item name="android:popupLayout">@layout/keyboard_popup_keyboard</item>
+        <item name="android:verticalCorrection">-10dp</item>
+        <item name="android:shadowColor">#BB000000</item>
+        <item name="android:shadowRadius">2.75</item>
+    </style>
+    
+    <!-- UCrop Theme -->
+    <style name="UCropTheme" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/black</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+    </style>
+
+    <style name="VoiceInputTheme" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/voice_input_background</item>
+        <item name="android:statusBarColor">@color/voice_input_background</item>
+        <item name="android:navigationBarColor">@color/voice_input_background</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.InputMethod</item>
+    </style>
+    
+    <!-- Keyboard Button Styles -->
+    <style name="KeyButton">
+        <item name="android:gravity">center</item>
+        <item name="android:minHeight">44dp</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textColor">@color/kb_text_primary</item>
+        <item name="android:paddingLeft">12dp</item>
+        <item name="android:paddingRight">12dp</item>
+        <item name="android:background">@drawable/key_background_themeable</item>
+        <item name="android:textAllCaps">false</item>
+    </style>
+    
+    <style name="KeyButton.Primary">
+        <item name="android:textStyle">bold</item>
+    </style>
+    
+    <style name="KeyButton.Secondary"/>
+
+    <style name="AiChip">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">36dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingHorizontal">12dp</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+    <style name="AiChipOutlined" parent="AiChip"/>
+</resources>

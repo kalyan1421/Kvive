@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Grammar check icon (A with checkmark) for toolbar -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M17.9952 10.5L12.6682 16.2055L10.0047 13.3527L8 15.5L12.6682 20.5L20 12.6472L17.9952 10.5Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M9.67013 13.1635H8.02902L7.08498 16.5H4L8.02902 3.5H11.9588L15 13.0693L13.3984 14.6607L10.7336 12.0803L9.67013 13.1635ZM11.3892 10.9647C11.3892 10.9647 10.0915 6.47065 9.89469 5.69874H9.85629C9.65946 6.47065 8.46103 10.9647 8.46103 10.9647H11.3892Z" />
+</vector>
+

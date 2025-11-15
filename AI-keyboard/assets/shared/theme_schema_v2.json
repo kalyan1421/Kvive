@@ -1,0 +1,364 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KeyboardThemeV2",
+  "type": "object",
+  "required": ["id", "name", "mode", "background", "keys", "specialKeys", "effects", "sounds", "stickers", "advanced"],
+  "properties": {
+    "id": { 
+      "type": "string", 
+      "default": "custom_${timestamp}",
+      "description": "Unique theme identifier"
+    },
+    "name": { 
+      "type": "string", 
+      "default": "Custom Theme",
+      "description": "Human readable theme name"
+    },
+    "mode": { 
+      "type": "string", 
+      "enum": ["unified", "split"], 
+      "default": "unified",
+      "description": "Theme inheritance mode - unified uses same colors across components"
+    },
+
+    "background": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { 
+          "type": "string", 
+          "enum": ["solid", "image", "gradient"], 
+          "default": "solid",
+          "description": "Background type"
+        },
+        "color": { 
+          "type": "string", 
+          "default": "#1B1B1F",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+          "description": "Solid background color (hex)"
+        },
+        "imagePath": { 
+          "type": "string", 
+          "default": "",
+          "description": "Path to background image asset"
+        },
+        "imageOpacity": { 
+          "type": "number", 
+          "minimum": 0, 
+          "maximum": 1, 
+          "default": 0.85,
+          "description": "Background image opacity"
+        },
+        "gradient": {
+          "type": "object",
+          "properties": {
+            "colors": { 
+              "type": "array", 
+              "items": { 
+                "type": "string",
+                "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+              }, 
+              "default": ["#2B2B2B", "#1B1B1F"],
+              "description": "Gradient color stops (hex)"
+            },
+            "orientation": { 
+              "type": "string", 
+              "enum": ["TOP_BOTTOM","TL_BR","TR_BL","LEFT_RIGHT","BR_TL","BL_TR"], 
+              "default": "TOP_BOTTOM",
+              "description": "Gradient orientation"
+            }
+          },
+          "default": {}
+        },
+        "overlayEffects": {
+          "type": "array",
+          "items": { 
+            "type": "string", 
+            "enum": ["blur","noise","vignette","neon","particles","bokeh"] 
+          },
+          "default": [],
+          "description": "Visual overlay effects"
+        }
+      },
+      "default": {}
+    },
+
+    "keys": {
+      "type": "object",
+      "required": ["preset","bg","text","pressed","border","radius","shadow","font"],
+      "properties": {
+        "preset": { 
+          "type": "string", 
+          "enum": ["flat","bordered","floating","3d","transparent"], 
+          "default": "bordered",
+          "description": "Key visual style preset"
+        },
+        "bg": { 
+          "type": "string", 
+          "default": "#3A3A3F",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+          "description": "Key background color (hex)"
+        },
+        "text": { 
+          "type": "string", 
+          "default": "#FFFFFF",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+          "description": "Key text color (hex)"
+        },
+        "pressed": { 
+          "type": "string", 
+          "default": "#505056",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+          "description": "Key pressed state color (hex)"
+        },
+        "rippleAlpha": { 
+          "type": "number", 
+          "minimum": 0, 
+          "maximum": 1, 
+          "default": 0.12,
+          "description": "Ripple effect transparency"
+        },
+        "styleId": {
+          "type": "string",
+          "default": "default",
+          "description": "Identifier for the selected button style"
+        },
+        "gradient": {
+          "type": "array",
+          "description": "Optional gradient colors for key background",
+          "items": {
+            "type": "string",
+            "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+          }
+        },
+        "border": {
+          "type": "object",
+          "properties": {
+            "enabled": { 
+              "type": "boolean", 
+              "default": true,
+              "description": "Enable key borders"
+            },
+            "color": { 
+              "type": "string", 
+              "default": "#636366",
+              "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+              "description": "Border color (hex)"
+            },
+            "widthDp": { 
+              "type": "number", 
+              "default": 1.0,
+              "description": "Border width in dp"
+            }
+          },
+          "default": {}
+        },
+        "radius": { 
+          "type": "number", 
+          "default": 10.0,
+          "description": "Key corner radius in dp"
+        },
+        "shadow": {
+          "type": "object",
+          "properties": {
+            "enabled": { 
+              "type": "boolean", 
+              "default": true,
+              "description": "Enable key shadows"
+            },
+            "elevationDp": { 
+              "type": "number", 
+              "default": 2.0,
+              "description": "Shadow elevation in dp"
+            },
+            "glow": { 
+              "type": "boolean", 
+              "default": false,
+              "description": "Enable glow effect"
+            }
+          },
+          "default": {}
+        },
+        "font": {
+          "type": "object",
+          "properties": {
+            "family": { 
+              "type": "string", 
+              "default": "Roboto",
+              "description": "Font family name"
+            },
+            "sizeSp": { 
+              "type": "number", 
+              "default": 18.0,
+              "description": "Font size in sp"
+            },
+            "bold": { 
+              "type": "boolean", 
+              "default": false,
+              "description": "Bold font weight"
+            },
+            "italic": { 
+              "type": "boolean", 
+              "default": false,
+              "description": "Italic font style"
+            }
+          },
+          "default": {}
+        },
+        "overlayIcon": {
+          "type": ["string", "null"],
+          "description": "Optional overlay icon identifier (e.g. heart, ball)"
+        },
+        "overlayIconColor": {
+          "type": ["string", "null"],
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+          "description": "Hex color applied to the overlay icon"
+        },
+        "overlayIconTargets": {
+          "type": "array",
+          "description": "Key types that should display the overlay icon",
+          "items": {
+            "type": "string",
+            "enum": ["space","enter","backspace","emoji","globe","mic","symbols"]
+          }
+        }
+      },
+      "default": {}
+    },
+
+    "specialKeys": {
+      "type": "object",
+      "required": ["accent","useAccentForEnter","spaceLabelColor"],
+      "properties": {
+        "accent": { 
+          "type": "string", 
+          "default": "#FF9F1A",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+          "description": "Accent color for special keys (hex)"
+        },
+        "useAccentForEnter": { 
+          "type": "boolean", 
+          "default": true,
+          "description": "Apply accent color to Enter key"
+        },
+        "applyTo": {
+          "type": "array",
+          "items": { 
+            "type": "string", 
+            "enum": ["enter","shift","globe","emoji","mic","backspace","symbols","space"] 
+          },
+          "default": ["enter","globe","emoji","mic","symbols","backspace"],
+          "description": "Keys to apply accent color to"
+        },
+        "spaceLabelColor": { 
+          "type": "string", 
+          "default": "#FFFFFF",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$",
+          "description": "Space bar label color (hex)"
+        }
+      },
+      "default": {}
+    },
+
+    "effects": {
+      "type": "object",
+      "properties": {
+        "pressAnimation": { 
+          "type": "string", 
+          "enum": ["ripple","bounce","glow","none"], 
+          "default": "ripple",
+          "description": "Key press animation type"
+        }
+      },
+      "default": {}
+    },
+
+    "sounds": {
+      "type": "object",
+      "properties": {
+        "pack": { 
+          "type": "string", 
+          "enum": ["classic","soft","mechanical","clicky","silent","custom"], 
+          "default": "soft",
+          "description": "Sound pack selection"
+        },
+        "customUris": { 
+          "type": "object", 
+          "additionalProperties": { "type": "string" }, 
+          "default": {},
+          "description": "Custom sound file URIs mapped by action"
+        },
+        "volume": { 
+          "type": "number", 
+          "minimum": 0, 
+          "maximum": 1, 
+          "default": 0.6,
+          "description": "Sound volume level"
+        }
+      },
+      "default": {}
+    },
+
+    "stickers": {
+      "type": "object",
+      "properties": {
+        "enabled": { 
+          "type": "boolean", 
+          "default": false,
+          "description": "Enable sticker overlay"
+        },
+        "pack": { 
+          "type": "string", 
+          "default": "",
+          "description": "Sticker pack identifier"
+        },
+        "position": { 
+          "type": "string", 
+          "enum": ["above","below","behind"], 
+          "default": "behind",
+          "description": "Sticker layer position"
+        },
+        "animated": { 
+          "type": "boolean", 
+          "default": false,
+          "description": "Enable animated stickers"
+        }
+      },
+      "default": {}
+    },
+
+    "advanced": {
+      "type": "object",
+      "properties": {
+        "livePreview": { 
+          "type": "boolean", 
+          "default": true,
+          "description": "Enable live preview in theme editor"
+        },
+        "galleryEnabled": { 
+          "type": "boolean", 
+          "default": true,
+          "description": "Enable theme gallery"
+        },
+        "shareEnabled": { 
+          "type": "boolean", 
+          "default": true,
+          "description": "Enable theme sharing"
+        },
+        "dynamicTheme": { 
+          "type": "string", 
+          "enum": ["none","wallpaper","timeOfDay"], 
+          "default": "none",
+          "description": "Dynamic theme adaptation"
+        },
+        "materialYouExtract": { 
+          "type": "boolean", 
+          "default": false,
+          "description": "Extract colors from Material You palette"
+        }
+      },
+      "default": {}
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Extended Symbols",
+  "description": "Extended special characters and symbols",
+  "rows": [
+    ["~", "|", "•", "√", "π", "÷", "×", "¶", "∆"],
+    ["¥", "£", "¢", "^", "°", "=", "{", "}", "\""],
+    ["?123", "©", "®", "™", "✓", "<", ">", "DELETE"],
+    ["ABC", "[", "123", "SPACE", "]", "RETURN"]
+  ]
+}

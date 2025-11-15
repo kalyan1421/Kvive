@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Multilingual keyboard colors -->
+    <color name="selected_language_background">#4CAF50</color>
+    <color name="language_switch_background">#2196F3</color>
+    <color name="language_indicator_background">#FF9800</color>
+    <color name="cross_language_suggestion">#9C27B0</color>
+    <color name="correction_suggestion">#4CAF50</color>
+    <color name="phonetic_suggestion">#FF5722</color>
+    <color name="context_suggestion">#795548</color>
+    
+    <!-- Language-specific accent colors -->
+    <color name="english_accent">#1976D2</color>
+    <color name="spanish_accent">#D32F2F</color>
+    <color name="french_accent">#303F9F</color>
+    <color name="german_accent">#F57C00</color>
+    <color name="portuguese_accent">#388E3C</color>
+    <color name="italian_accent">#7B1FA2</color>
+    <color name="hindi_accent">#E64A19</color>
+    <color name="arabic_accent">#5D4037</color>
+    <color name="russian_accent">#C62828</color>
+    <color name="japanese_accent">#AD1457</color>
+    
+    <!-- Additional UI colors -->
+    <color name="language_switch_background_color">#4CAF50</color>
+    <color name="language_switch_text_color">#FFFFFF</color>
+    <color name="popup_background_color">#FFFFFF</color>
+    <color name="popup_text_color">#000000</color>
+</resources>

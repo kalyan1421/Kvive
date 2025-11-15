@@ -1,0 +1,153 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // =====================================================
+    // 🔧 Helper Functions
+    // =====================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+             exists(/databases/$(database)/documents/adminUsers/$(request.auth.uid));
+    }
+    
+    function isTokenAdmin() {
+      return request.auth != null && 
+             request.auth.token.admin == true;
+    }
+    
+    // =====================================================
+    // 🔹 1. Public Sticker Packs (Read-Only)
+    // =====================================================
+    match /sticker_packs/{packId} {
+      allow read: if true; // Anyone can read
+      // Write only by admin (via custom token)
+      allow write, update, delete: if isTokenAdmin();
+      
+      // Subcollection: stickers
+      match /stickers/{stickerId} {
+        allow read: if true;
+        allow write, update, delete: if isTokenAdmin();
+      }
+    }
+    
+    // =====================================================
+    // 🔹 2. User Data (Private)
+    // =====================================================
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+      
+      match /{document=**} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+      }
+    }
+    
+    // =====================================================
+    // 🔹 3. Keyboard Settings (User Private)
+    // =====================================================
+    match /users/{uid}/settings/keyboard {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+    
+    // =====================================================
+    // 🔹 4. User Dictionary (Personal Dictionary)
+    // =====================================================
+    match /users/{uid}/dictionary/{locale} {
+      allow read, write, list: if request.auth != null && request.auth.uid == uid;
+    }
+    
+    // =====================================================
+    // 🔹 5. Shared Word Frequency (Read-Only to Users)
+    // =====================================================
+    match /dictionary_frequency/{language} {
+      allow read: if request.auth != null;
+      allow write: if isTokenAdmin(); // Model data must be protected
+    }
+    
+    // =====================================================
+    // 🔹 6. Devices (Push Notification Tokens)
+    // =====================================================
+    match /devices/{deviceToken} {
+      // Anyone can write their own token (no auth required for initial registration)
+      allow create: if true;
+      // Allow devices to update their own token
+      allow update: if true;
+      // Admins can read all device tokens
+      allow read: if isAdmin();
+      // Only admins can delete tokens
+      allow delete: if isAdmin();
+    }
+    
+    // =====================================================
+    // 🔹 7. User Sessions (For Analytics / Session Tracking)
+    // =====================================================
+    match /userSessions/{sessionId} {
+      allow read: if isAdmin() || 
+                     (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isAuthenticated();
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      allow delete: if isAdmin() || 
+                        (isAuthenticated() && resource.data.userId == request.auth.uid);
+    }
+    
+    // =====================================================
+    // 🔹 8. Broadcast Notifications (Admin Only)
+    // =====================================================
+    match /broadcastNotifications/{notificationId} {
+      // Admins can create notifications
+      allow create: if isAdmin();
+      // Admins can update notifications
+      allow update: if isAdmin();
+      // Admins can delete notifications
+      allow delete: if isAdmin();
+      // Authenticated users can read notifications
+      allow read: if isAuthenticated();
+    }
+    
+    // =====================================================
+    // 🔹 9. User Notifications (Device-specific)
+    // =====================================================
+    match /userNotifications/{deviceToken} {
+      // Allow devices to read/write their own notifications
+      allow read: if true; // No auth required, identified by device token
+      // Allow devices to write their own notifications
+      allow write: if true; // No auth required, identified by device token
+      
+      match /notifications/{notificationId} {
+        // Allow devices to read their own notifications
+        allow read: if true;
+        // Allow devices to create new notifications (required for FCM background handlers)
+        allow create: if true;
+        // Allow devices to write their own notifications (general write permission)
+        allow write: if true;
+        // Allow devices to update (mark as read) their own notifications
+        allow update: if true;
+        // Allow devices to delete their own notifications
+        allow delete: if true;
+      }
+    }
+    
+    // =====================================================
+    // 🔹 10. Admin Users Collection
+    // =====================================================
+    match /adminUsers/{adminId} {
+      // Allow authenticated users to create their own admin document (app logic checks if first admin)
+      allow create: if isAuthenticated() && request.auth.uid == adminId;
+      // Allow reading to check if admin exists (needed before authentication for first admin check)
+      allow read: if true; // Allow unauthenticated reads to check if collection is empty
+      // Only admins can update/delete
+      allow update, delete: if isAdmin();
+    }
+    
+    // =====================================================
+    // 🔥 11. Default Deny Rule (Security Fallback)
+    // =====================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
