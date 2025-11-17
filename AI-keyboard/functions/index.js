@@ -8,10 +8,15 @@
  */
 
 const {setGlobalOptions} = require("firebase-functions");
-const {onRequest} = require("firebase-functions/https");
+const {onRequest} = require("firebase-functions/v2/https");
 const {onDocumentCreated} = require("firebase-functions/v2/firestore");
+const {defineSecret} = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
+const axios = require("axios");
+
+// Define the secret for OpenAI API key
+const openaiApiKeySecret = defineSecret("OPENAI_API_KEY");
 
 admin.initializeApp();
 
@@ -199,6 +204,131 @@ exports.sendBroadcastNotification = onDocumentCreated(
           status: "failed",
           error: error.message,
         });
+    }
+  }
+);
+
+/**
+ * OpenAI Proxy Function - Securely proxies OpenAI API requests
+ * API key is stored in Firebase Functions environment variables
+ * 
+ * Usage:
+ * POST /openaiChat
+ * Body: {
+ *   "messages": [{"role": "user", "content": "Hello"}],
+ *   "model": "gpt-3.5-turbo",
+ *   "max_tokens": 300,
+ *   "temperature": 0.7
+ * }
+ */
+exports.openaiChat = onRequest(
+  {
+    cors: true,
+    maxInstances: 10,
+    secrets: [openaiApiKeySecret], // Access the secret
+  },
+  async (req, res) => {
+    // Set CORS headers
+    res.set("Access-Control-Allow-Origin", "*");
+    res.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.set("Access-Control-Allow-Headers", "Content-Type");
+
+    // Handle preflight requests
+    if (req.method === "OPTIONS") {
+      res.status(204).send("");
+      return;
+    }
+
+    // Only allow POST requests
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      // Get OpenAI API key from Firebase Functions secret
+      const openaiApiKey = openaiApiKeySecret.value();
+      
+      if (!openaiApiKey) {
+        logger.error("OPENAI_API_KEY secret not configured");
+        res.status(500).json({
+          error: "Server configuration error: OpenAI API key not set. Please configure OPENAI_API_KEY secret in Firebase Functions.",
+        });
+        return;
+      }
+
+      // Validate request body
+      const { messages, model, max_tokens, temperature } = req.body;
+
+      if (!messages || !Array.isArray(messages) || messages.length === 0) {
+        res.status(400).json({
+          error: "Invalid request: messages array is required",
+        });
+        return;
+      }
+
+      // Prepare OpenAI API request
+      const openaiRequest = {
+        model: model || "gpt-3.5-turbo",
+        messages: messages,
+        max_tokens: max_tokens || 300,
+        temperature: temperature || 0.7,
+      };
+
+      logger.info("Proxying OpenAI request", {
+        model: openaiRequest.model,
+        messageCount: messages.length,
+      });
+
+      // Make request to OpenAI API
+      const response = await axios.post(
+        "https://api.openai.com/v1/chat/completions",
+        openaiRequest,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${openaiApiKey}`,
+          },
+          timeout: 30000, // 30 seconds timeout
+        }
+      );
+
+      // Return OpenAI response
+      res.status(200).json(response.data);
+    } catch (error) {
+      logger.error("Error proxying OpenAI request", {
+        error: error.message,
+        stack: error.stack,
+      });
+
+      // Handle specific error cases
+      if (error.response) {
+        // OpenAI API returned an error
+        const statusCode = error.response.status;
+        const errorData = error.response.data;
+
+        if (statusCode === 401) {
+          res.status(401).json({
+            error: "Invalid API key. Please check server configuration.",
+          });
+        } else if (statusCode === 429) {
+          res.status(429).json({
+            error: "Rate limit exceeded. Please try again later.",
+          });
+        } else {
+          res.status(statusCode).json({
+            error: errorData?.error?.message || "OpenAI API error",
+          });
+        }
+      } else if (error.code === "ECONNABORTED") {
+        res.status(504).json({
+          error: "Request timeout. Please try again.",
+        });
+      } else {
+        res.status(500).json({
+          error: "Internal server error",
+        });
+      }
     }
   }
 );

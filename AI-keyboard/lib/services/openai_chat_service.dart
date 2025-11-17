@@ -1,14 +1,21 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 class OpenAIChatService {
-  static const String _baseUrl = 'https://api.openai.com/v1/chat/completions';
-  static const String _model = 'gpt-3.5-turbo';
-  static const String _apiKeyPref = 'openai_api_key';
+  // Firebase Function URL - proxies OpenAI API requests securely
+  // API key is stored on the server, never exposed to the client
+  static String get _functionUrl {
+    final projectId = Firebase.app().options.projectId;
+    return 'https://us-central1-$projectId.cloudfunctions.net/openaiChat';
+  }
   
-  // Default API key - should be configured in settings
-  static const String _defaultApiKey = 'YOUR_OPENAI_API_KEY_HERE';
+  static const String _model = 'gpt-3.5-turbo';
+  static const String _apiKeyPref = 'openai_api_key'; // Legacy - kept for backward compatibility
+  
+  // Note: API key is now stored securely on Firebase Functions server
+  // Users no longer need to configure their own API key
   
   // System prompt to restrict responses to keyboard-related topics
   static const String _systemPrompt = '''You are a helpful AI assistant for Kvive Keyboard app. 
@@ -30,59 +37,34 @@ politely redirect them by saying: "I'm here to help with keyboard-related questi
 
 Be friendly, concise, and helpful. Keep responses clear and to the point.''';
 
-  /// Get the API key from SharedPreferences
-  static Future<String?> _getApiKey() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final apiKey = prefs.getString(_apiKeyPref);
-      
-      // Return stored key or default key
-      if (apiKey != null && apiKey.isNotEmpty && apiKey != _defaultApiKey) {
-        return apiKey;
-      }
-      
-      // Check if default key has been set
-      if (_defaultApiKey != 'YOUR_OPENAI_API_KEY_HERE') {
-        return _defaultApiKey;
-      }
-      
-      return null;
-    } catch (e) {
-      print('Error getting API key: $e');
-      return null;
-    }
-  }
-
-  /// Save API key to SharedPreferences
-  static Future<void> saveApiKey(String apiKey) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_apiKeyPref, apiKey);
-    } catch (e) {
-      print('Error saving API key: $e');
-    }
-  }
-
-  /// Check if API key is configured
+  /// Check if API is configured (always true now - uses backend proxy)
   static Future<bool> isApiKeyConfigured() async {
-    final apiKey = await _getApiKey();
-    return apiKey != null && apiKey.isNotEmpty;
+    // API key is stored on the server, so it's always configured
+    // This method is kept for backward compatibility with existing UI code
+    return true;
   }
 
-  /// Send a chat message and get AI response
+  /// Save API key (legacy method - kept for backward compatibility)
+  /// Note: API key is now stored on Firebase Functions server
+  static Future<void> saveApiKey(String apiKey) async {
+    // This method is kept for backward compatibility
+    // The actual API key is stored on the Firebase Functions server
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_apiKeyPref, 'server_managed');
+    } catch (e) {
+      print('Error saving API key preference: $e');
+    }
+  }
+
+  /// Send a chat message and get AI response via Firebase Function proxy
   static Future<String> sendMessage({
     required String userMessage,
     List<Map<String, String>>? conversationHistory,
   }) async {
     try {
-      final apiKey = await _getApiKey();
-      
-      if (apiKey == null || apiKey.isEmpty) {
-        return "I'm currently not configured to respond. Please ask the app administrator to set up the OpenAI API key in the settings.";
-      }
-
       // Build messages array with system prompt and conversation history
-      final messages = <Map<String, String>>[
+      final messages = <Map<String, dynamic>>[
         {'role': 'system', 'content': _systemPrompt},
       ];
 
@@ -91,18 +73,20 @@ Be friendly, concise, and helpful. Keep responses clear and to the point.''';
         final recentHistory = conversationHistory.length > 10 
             ? conversationHistory.sublist(conversationHistory.length - 10)
             : conversationHistory;
-        messages.addAll(recentHistory);
+        messages.addAll(recentHistory.map((msg) => {
+          'role': msg['role'],
+          'content': msg['content'],
+        }));
       }
 
       // Add current user message
       messages.add({'role': 'user', 'content': userMessage});
 
-      // Make API request
+      // Make request to Firebase Function (which proxies to OpenAI)
       final response = await http.post(
-        Uri.parse(_baseUrl),
+        Uri.parse(_functionUrl),
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer $apiKey',
         },
         body: jsonEncode({
           'model': _model,
@@ -121,16 +105,26 @@ Be friendly, concise, and helpful. Keep responses clear and to the point.''';
         final data = jsonDecode(response.body);
         final content = data['choices'][0]['message']['content'] as String;
         return content.trim();
-      } else if (response.statusCode == 401) {
-        return "API key is invalid. Please check your OpenAI API key configuration.";
-      } else if (response.statusCode == 429) {
-        return "Too many requests. Please wait a moment and try again.";
       } else {
-        print('OpenAI API error: ${response.statusCode} - ${response.body}');
-        return "I'm having trouble connecting right now. Please try again in a moment.";
+        // Parse error response from Firebase Function
+        try {
+          final errorData = jsonDecode(response.body);
+          final errorMessage = errorData['error'] as String?;
+          
+          if (response.statusCode == 401) {
+            return "Server configuration error. Please contact support.";
+          } else if (response.statusCode == 429) {
+            return "Too many requests. Please wait a moment and try again.";
+          } else {
+            return errorMessage ?? "I'm having trouble connecting right now. Please try again in a moment.";
+          }
+        } catch (e) {
+          print('Error parsing error response: $e');
+          return "I'm having trouble connecting right now. Please try again in a moment.";
+        }
       }
     } catch (e) {
-      print('Error sending message to OpenAI: $e');
+      print('Error sending message via Firebase Function: $e');
       
       if (e.toString().contains('SocketException') || 
           e.toString().contains('timeout')) {
@@ -166,4 +160,5 @@ Be friendly, concise, and helpful. Keep responses clear and to the point.''';
     }
   }
 }
+
 

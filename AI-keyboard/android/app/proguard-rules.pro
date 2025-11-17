@@ -12,6 +12,10 @@
 -dontwarn com.google.firebase.**
 -dontwarn com.google.android.gms.**
 
+# Google Play Core (for deferred components)
+-dontwarn com.google.android.play.core.**
+-keep class com.google.android.play.core.** { *; }
+
 # Gson
 -keepattributes Signature
 -keepattributes *Annotation*

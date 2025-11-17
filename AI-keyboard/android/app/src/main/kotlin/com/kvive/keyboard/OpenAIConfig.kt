@@ -29,6 +29,14 @@ class OpenAIConfig private constructor(private val context: Context) {
         const val MAX_TOKENS = 150
         const val TEMPERATURE = 0.7f
         
+        // Backend Proxy Configuration
+        // Firebase Function URL - will be constructed from project ID
+        fun getBackendProxyUrl(context: Context): String {
+            // Use hardcoded project ID (matches firebase_options.dart)
+            val projectId = "aikeyboard-18ed9"
+            return "https://us-central1-$projectId.cloudfunctions.net/openaiChat"
+        }
+        
         @Volatile
         private var INSTANCE: OpenAIConfig? = null
         
@@ -73,12 +81,14 @@ class OpenAIConfig private constructor(private val context: Context) {
     
     /**
      * Check if API key is configured
+     * Returns true if local API key exists OR if backend proxy is enabled
      */
     fun hasApiKey(): Boolean {
         val hasEncrypted = prefs.contains(API_KEY_PREF)
         val hasDirect = prefs.contains("direct_api_key")
-        val result = hasEncrypted || hasDirect
-        Log.d(TAG, "hasApiKey: encrypted=$hasEncrypted, direct=$hasDirect, result=$result")
+        val hasBackendProxy = prefs.getBoolean("backend_proxy_enabled", true) // Default to true (using backend proxy)
+        val result = hasEncrypted || hasDirect || hasBackendProxy
+        Log.d(TAG, "hasApiKey: encrypted=$hasEncrypted, direct=$hasDirect, backendProxy=$hasBackendProxy, result=$result")
         return result
     }
     
@@ -93,8 +103,16 @@ class OpenAIConfig private constructor(private val context: Context) {
     
     /**
      * Check if AI features are enabled
+     * Defaults to true when using backend proxy (no local API key required)
      */
-    fun isAIFeaturesEnabled(): Boolean = prefs.getBoolean(API_ENABLED_PREF, false)
+    fun isAIFeaturesEnabled(): Boolean {
+        // Check if backend proxy is enabled (defaults to true)
+        val backendProxyEnabled = prefs.getBoolean("backend_proxy_enabled", true)
+        // If using backend proxy, enable AI features by default
+        val enabled = prefs.getBoolean(API_ENABLED_PREF, backendProxyEnabled)
+        Log.d(TAG, "isAIFeaturesEnabled: $enabled (backendProxy=$backendProxyEnabled)")
+        return enabled
+    }
     
     /**
      * Clear stored API key

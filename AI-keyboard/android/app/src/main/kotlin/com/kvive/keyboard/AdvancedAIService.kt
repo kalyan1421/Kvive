@@ -337,17 +337,16 @@ class AdvancedAIService(private val context: Context) {
                 }
             }
             
-            val authHeader = config.getAuthorizationHeader()
-                ?: throw Exception("API key not configured")
-            
-            val url = URL(OpenAIConfig.CHAT_COMPLETIONS_ENDPOINT)
+            // Use Firebase Function proxy instead of OpenAI directly
+            val backendProxyUrl = OpenAIConfig.getBackendProxyUrl(context)
+            val url = URL(backendProxyUrl)
             val connection = url.openConnection() as HttpURLConnection
             
             try {
                 connection.apply {
                     requestMethod = "POST"
                     setRequestProperty("Content-Type", "application/json")
-                    setRequestProperty("Authorization", authHeader)
+                    // No Authorization header needed - API key is on the server
                     setRequestProperty("User-Agent", "AI-Keyboard/1.0")
                     connectTimeout = CONNECT_TIMEOUT
                     readTimeout = REQUEST_TIMEOUT
@@ -372,17 +371,28 @@ class AdvancedAIService(private val context: Context) {
                         return@withContext parseOpenAIResponse(response)
                     }
                     HttpURLConnection.HTTP_UNAUTHORIZED -> {
-                        throw Exception("Invalid API key. Please check your OpenAI API key.")
+                        throw Exception("Server configuration error. Please contact support.")
                     }
                     HttpURLConnection.HTTP_FORBIDDEN -> {
-                        throw Exception("API access forbidden. Check your API key permissions.")
+                        throw Exception("Access forbidden. Please check server configuration.")
                     }
                     429 -> {
-                        // OpenAI rate limit hit, set our internal rate limit
+                        // Rate limit hit, set our internal rate limit
                         isRateLimited = true
                         rateLimitResetTime = System.currentTimeMillis() + RATE_LIMIT_WINDOW_MS
-                        Log.w(TAG, "OpenAI rate limit hit, internal rate limiting activated")
-                        throw Exception("Rate limit exceeded by OpenAI. Please wait 60s before next request.")
+                        Log.w(TAG, "Rate limit hit, internal rate limiting activated")
+                        throw Exception("Rate limit exceeded. Please wait 60s before next request.")
+                    }
+                    500, 502, 503, 504 -> {
+                        // Server errors from Firebase Function
+                        val errorResponse = try {
+                            BufferedReader(InputStreamReader(connection.errorStream)).use { reader ->
+                                reader.readText()
+                            }
+                        } catch (e: Exception) {
+                            "Server error"
+                        }
+                        throw Exception("Server error: $errorResponse")
                     }
                     HttpURLConnection.HTTP_BAD_REQUEST -> {
                         val errorResponse = BufferedReader(InputStreamReader(connection.errorStream)).use { reader ->

@@ -120,17 +120,16 @@ class StreamingAIService(private val context: Context) {
         systemPrompt: String,
         userText: String
     ): Flow<String> = flow {
-        val authHeader = config.getAuthorizationHeader()
-            ?: throw Exception("API key not configured")
-        
-        val url = URL(OpenAIConfig.CHAT_COMPLETIONS_ENDPOINT)
+        // Use Firebase Function proxy instead of OpenAI directly
+        val backendProxyUrl = OpenAIConfig.getBackendProxyUrl(context)
+        val url = URL(backendProxyUrl)
         val connection = url.openConnection() as HttpURLConnection
         
         try {
             connection.apply {
                 requestMethod = "POST"
                 setRequestProperty("Content-Type", "application/json")
-                setRequestProperty("Authorization", authHeader)
+                // No Authorization header needed - API key is on the server
                 setRequestProperty("Accept", "text/event-stream")
                 connectTimeout = CONNECT_TIMEOUT
                 readTimeout = REQUEST_TIMEOUT

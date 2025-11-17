@@ -550,7 +550,12 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
         val expiryDurationMs = expiryDurationMinutes * 60 * 1000
         val initialSize = historyItems.size
         
-        historyItems.removeIf { it.isExpired(expiryDurationMs) }
+        // Collect expired items first, then remove them
+        // This avoids UnsupportedOperationException with CopyOnWriteArrayList iterators
+        val expiredItems = historyItems.filter { it.isExpired(expiryDurationMs) }
+        if (expiredItems.isNotEmpty()) {
+            historyItems.removeAll(expiredItems)
+        }
         
         if (historyItems.size != initialSize) {
             saveHistoryToPrefs()

@@ -882,8 +882,13 @@ class AIKeyboardService : InputMethodService(),
         
         // Initialize OpenAI configuration first (critical for AI features)
         try {
-            OpenAIConfig.getInstance(this)
-            Log.d(TAG, "OpenAI configuration initialized successfully")
+            val config = OpenAIConfig.getInstance(this)
+            // Enable backend proxy mode by default (API key stored on server)
+            val prefs = getSharedPreferences("openai_secure_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("backend_proxy_enabled", true).apply()
+            // Enable AI features by default when using backend proxy
+            config.setAIFeaturesEnabled(true)
+            Log.d(TAG, "OpenAI configuration initialized successfully (backend proxy mode)")
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing OpenAI configuration", e)
         }
@@ -2466,6 +2471,16 @@ class AIKeyboardService : InputMethodService(),
                     }, 60)
                 }
                 insets
+            }
+        }
+
+        // Ensure CleverType configuration (spacing, sizing, etc.) is applied once the view exists
+        mainHandler.post {
+            try {
+                applyConfig()
+                Log.d(TAG, "✅ Applied keyboard config immediately after view creation")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error applying keyboard config after view creation", e)
             }
         }
 
