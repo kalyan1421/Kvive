@@ -107,8 +107,8 @@ class RippleEffect {
 
 /// Advanced keyboard feedback system
 class KeyboardFeedbackSystem {
-  // Audio player for sound effects
-  static final AudioPlayer _audioPlayer = AudioPlayer();
+  // SoundPool-backed audio players cached per effect (preloaded + low latency)
+  static final Map<String, AudioPlayer> _soundPlayers = {};
   
   // Feedback settings
   static FeedbackIntensity _hapticIntensity = FeedbackIntensity.medium;
@@ -146,7 +146,10 @@ class KeyboardFeedbackSystem {
       controller.dispose();
     }
     _animationControllers.clear();
-    _audioPlayer.dispose();
+    for (final player in _soundPlayers.values) {
+      player.dispose();
+    }
+    _soundPlayers.clear();
   }
   
   /// Update feedback intensity settings
@@ -345,10 +348,7 @@ class KeyboardFeedbackSystem {
     
     try {
       if (_soundEnabled) {
-        await _audioPlayer.play(
-          AssetSource('sounds/$soundFile'),
-          volume: _soundVolume * _getIntensityMultiplier(_soundIntensity),
-        );
+        await _playSound(soundFile);
       }
     } catch (e) {
       // Fallback to system sound - use haptic feedback instead and disable future sound attempts
@@ -447,29 +447,44 @@ class KeyboardFeedbackSystem {
   }
   
   static void _preloadSounds() {
-    // Preload sound effects - disabled to prevent crashes
-    try {
-      final sounds = [
-        'key_press.wav',
-        'space_press.wav', 
-        'enter_press.wav',
-        'special_key_press.wav',
-      ];
-      
-      for (final sound in sounds) {
-        try {
-          _audioPlayer.setSource(AssetSource('sounds/$sound'));
-          break; // Only load the first successful sound
-        } catch (e) {
-          // Sound files not found, continue to next or use system sounds as fallback
-          print('Could not load sound: $sound - $e');
-        }
-      }
-    } catch (e) {
-      // Completely disable audio if there are any issues
-      print('Audio system disabled due to errors: $e');
-      _soundEnabled = false;
+    // Preload all short clips through SoundPool-backed players (no MediaCodec churn)
+    final sounds = [
+      'key_press.wav',
+      'space_press.wav', 
+      'enter_press.wav',
+      'special_key_press.wav',
+    ];
+    
+    for (final sound in sounds) {
+      _ensureSoundPlayer(sound).then((_) {
+        _soundEnabled = true;
+      }).catchError((e) {
+        print('Could not preload sound: $sound - $e');
+      });
     }
+  }
+
+  static Future<void> _playSound(String soundFile) async {
+    final player = await _ensureSoundPlayer(soundFile);
+    final targetVolume =
+        (_soundVolume * _getIntensityMultiplier(_soundIntensity)).clamp(0.0, 1.0);
+
+    await player.setVolume(targetVolume);
+    await player.seek(Duration.zero);
+    await player.resume();
+  }
+
+  static Future<AudioPlayer> _ensureSoundPlayer(String soundFile) async {
+    final cached = _soundPlayers[soundFile];
+    if (cached != null) return cached;
+
+    final player = AudioPlayer(playerId: 'feedback_$soundFile');
+    await player.setPlayerMode(PlayerMode.lowLatency);
+    await player.setReleaseMode(ReleaseMode.stop);
+    await player.setSource(AssetSource('sounds/$soundFile'));
+
+    _soundPlayers[soundFile] = player;
+    return player;
   }
 }
 

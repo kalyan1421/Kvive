@@ -167,6 +167,10 @@ class SwipeKeyboardView @JvmOverloads constructor(
     private val DYNAMIC_LONG_PRESS_TIMEOUT = 500L
     private var dynamicAccentPopup: PopupWindow? = null
     
+    // Track last applied shift visuals to prevent redundant redraws
+    private var lastShiftUppercase = false
+    private var lastShiftCapsLock = false
+    
     // ✅ FIXED: Track current keyboard mode for proper key code mapping
     var currentKeyboardMode: LanguageLayoutAdapter.KeyboardMode = LanguageLayoutAdapter.KeyboardMode.LETTERS
     var currentLangCode: String = "en"
@@ -222,6 +226,34 @@ class SwipeKeyboardView @JvmOverloads constructor(
         invalidateAllKeys()
         invalidate()
         requestLayout()
+    }
+    
+    /**
+     * Lightweight shift update for legacy controllers (avoids rebuilds)
+     */
+    fun applyShiftState(isUpperCase: Boolean, isCapsLock: Boolean): Boolean {
+        val kb = keyboard ?: return false
+        
+        // Skip if nothing changed to avoid redundant invalidations
+        if (isUpperCase == lastShiftUppercase && isCapsLock == lastShiftCapsLock) {
+            return true
+        }
+        
+        kb.setShifted(isUpperCase)
+        
+        // Update shift key visual toggles (covers layouts using -1 for shift)
+        kb.keys.forEach { key ->
+            if (key.codes.contains(Keyboard.KEYCODE_SHIFT) || key.codes.contains(-1)) {
+                key.on = isUpperCase
+                key.pressed = isCapsLock
+            }
+        }
+        
+        lastShiftUppercase = isUpperCase
+        lastShiftCapsLock = isCapsLock
+        
+        invalidateAllKeys()
+        return true
     }
     
     // ========================================
@@ -1406,9 +1438,6 @@ class SwipeKeyboardView @JvmOverloads constructor(
         
         // Also provide unique keys for backward compatibility
         swipedKeys.addAll(keySequence.distinct())
-        
-        // DIAGNOSTIC: Log view bounds for coordinate analysis
-        android.util.Log.d("SwipeKeyboardView", "📐 bounds w=${width} h=${height} points=${swipePoints.size}")
         
         // Convert swipePoints to normalized coordinates before passing to listener
         val normalizedPath = buildNormalizedPath(swipePoints)

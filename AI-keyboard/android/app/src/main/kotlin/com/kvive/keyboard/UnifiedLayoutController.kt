@@ -5,6 +5,7 @@ import android.util.Log
 import android.view.ViewGroup
 import android.widget.Toast
 import kotlinx.coroutines.*
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 🚀 UNIFIED LAYOUT CONTROLLER V2
@@ -16,6 +17,13 @@ import kotlinx.coroutines.*
  * ✅ Caps/Shift management (auto-capitalization, state tracking)
  * ✅ Language switching UI (display names, flags, notifications)
  * ✅ Script detection and handling (RTL, Indic, Latin)
+ * 
+ * ⚡ PERFORMANCE OPTIMIZATIONS:
+ * ✅ Layout caching to avoid redundant rebuilds
+ * ✅ Debouncing/throttling for rapid calls
+ * ✅ Shift state updates without full rebuild
+ * ✅ Duplicate call prevention
+ * ✅ Smart invalidation (only when needed)
  * 
  * Replaces scattered logic from:
  * - loadDynamicLayout() / loadLanguageLayout()
@@ -29,6 +37,7 @@ import kotlinx.coroutines.*
  * - Integrated language + layout management
  * - Consistent auto-adjust behavior
  * - Simplified debugging (centralized logs)
+ * - ⚡ Reduced typing lag from unnecessary rebuilds
  */
 class UnifiedLayoutController(
     private val context: Context,
@@ -39,6 +48,9 @@ class UnifiedLayoutController(
 ) {
     companion object {
         private const val TAG = "UnifiedLayout"
+        private const val DEBOUNCE_DELAY_MS = 50L // Debounce rapid calls
+        private const val MAX_CACHE_SIZE = 20 // Limit cache size
+        private const val SHIFT_STATE_THROTTLE_MS = 100L // Throttle rapid shift state changes
     }
     
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -53,6 +65,25 @@ class UnifiedLayoutController(
     private var currentLanguage = "en"
     private var currentMode = LanguageLayoutAdapter.KeyboardMode.LETTERS
     private var numberRowEnabled = false
+    
+    // ⚡ PERFORMANCE: Layout caching
+    // Note: Shift state is NOT in cache key because it only affects labels, not structure
+    // We handle shift state separately via lightweight label updates
+    private data class LayoutCacheKey(
+        val language: String,
+        val mode: LanguageLayoutAdapter.KeyboardMode,
+        val numberRow: Boolean
+    )
+    private val layoutCache = ConcurrentHashMap<LayoutCacheKey, LanguageLayoutAdapter.LayoutModel>()
+    
+    // ⚡ PERFORMANCE: Debouncing/throttling
+    private var pendingBuildJob: Job? = null
+    private var lastBuildParams: LayoutCacheKey? = null
+    private var lastBuildTime = 0L
+    
+    // ⚡ PERFORMANCE: Track current shift state to avoid unnecessary rebuilds
+    private var currentShiftState = CapsShiftManager.STATE_NORMAL
+    private var lastShiftStateChangeTime = 0L
 
     /**
      * Initialize the unified controller with all language-related components.
@@ -90,30 +121,80 @@ class UnifiedLayoutController(
      * Main entry point for all layout loading.
      * Handles async layout building, rendering, and auto-adjust in correct sequence.
      * 
+     * ⚡ PERFORMANCE OPTIMIZATIONS:
+     * - Caches layouts to avoid redundant rebuilds
+     * - Debounces rapid calls
+     * - Prevents duplicate builds with same parameters
+     * 
      * @param language ISO language code (e.g., "en", "hi", "es")
      * @param mode Keyboard mode (LETTERS, SYMBOLS, EXTENDED_SYMBOLS, DIALER)
      * @param numberRow Whether to show number row
+     * @param force Force rebuild even if cached (default: false)
      */
     fun buildAndRender(
         language: String, 
         mode: LanguageLayoutAdapter.KeyboardMode, 
-        numberRow: Boolean = false
+        numberRow: Boolean = false,
+        force: Boolean = false
     ) {
-        Log.d(TAG, "🚀 Building layout for $language [$mode], numberRow=$numberRow")
+        val cacheKey = LayoutCacheKey(language, mode, numberRow)
         
-        // Update state
-        currentLanguage = language
-        currentMode = mode
-        numberRowEnabled = numberRow
+        // ⚡ PERFORMANCE: Check if this is a duplicate call
+        val now = System.currentTimeMillis()
+        if (!force && lastBuildParams == cacheKey && (now - lastBuildTime) < 100) {
+            Log.d(TAG, "⏸️ Skipping duplicate buildAndRender call (same params within 100ms)")
+            return
+        }
+        
+        // ⚡ PERFORMANCE: Cancel pending debounced call if parameters changed
+        pendingBuildJob?.cancel()
+        
+        // ⚡ PERFORMANCE: Debounce rapid calls (e.g., rapid shift presses)
+        pendingBuildJob = scope.launch {
+            delay(DEBOUNCE_DELAY_MS)
+            
+            // Check again after delay - another call might have come in
+            if (lastBuildParams == cacheKey && !force) {
+                Log.d(TAG, "⏸️ Debounced duplicate call cancelled")
+                return@launch
+            }
+            
+            lastBuildParams = cacheKey
+            lastBuildTime = System.currentTimeMillis()
+            
+            Log.d(TAG, "🚀 Building layout for $language [$mode], numberRow=$numberRow")
+            
+            // Update state
+            currentLanguage = language
+            currentMode = mode
+            numberRowEnabled = numberRow
 
-        scope.launch {
             try {
-                // Step 1: Build layout model asynchronously (off main thread)
-                val layoutModel = withContext(Dispatchers.IO) {
-                    adapter.buildLayoutFor(language, mode, numberRow)
+                // ⚡ PERFORMANCE: Check cache first
+                val layoutModel = if (!force) {
+                    layoutCache[cacheKey] ?: run {
+                        // Build layout model asynchronously (off main thread)
+                        val built = withContext(Dispatchers.IO) {
+                            adapter.buildLayoutFor(language, mode, numberRow)
+                        }
+                        // Cache it (with size limit)
+                        if (layoutCache.size >= MAX_CACHE_SIZE) {
+                            val firstKey = layoutCache.keys.first()
+                            layoutCache.remove(firstKey)
+                        }
+                        layoutCache[cacheKey] = built
+                        built
+                    }
+                } else {
+                    // Force rebuild - update cache
+                    val built = withContext(Dispatchers.IO) {
+                        adapter.buildLayoutFor(language, mode, numberRow)
+                    }
+                    layoutCache[cacheKey] = built
+                    built
                 }
                 
-                Log.d(TAG, "📦 Layout model built: ${layoutModel.rows.size} rows, ${layoutModel.rows.flatten().size} keys")
+                Log.d(TAG, "📦 Layout model ${if (force) "built" else "retrieved"}: ${layoutModel.rows.size} rows, ${layoutModel.rows.flatten().size} keys")
 
                 // Step 2: Apply layout to unified view (on main thread)
                 withContext(Dispatchers.Main) {
@@ -325,17 +406,73 @@ class UnifiedLayoutController(
     
     /**
      * Refresh keyboard layout to reflect current shift/caps state
+     * 
+     * ⚡ PERFORMANCE: Optimized to update labels only, not rebuild entire layout
+     * Only rebuilds if shift state actually changed or layout structure changed
+     * 
+     * ⚡ CRITICAL FIX: Throttles rapid shift state changes from gesture handlers
      */
     fun refreshKeyboardForShiftState(shiftState: Int) {
-        // Reload the current layout with updated case
+        val now = System.currentTimeMillis()
+        
+        // ⚡ PERFORMANCE: Skip if shift state hasn't changed
+        if (currentShiftState == shiftState) {
+            Log.d(TAG, "⏸️ Skipping shift refresh - state unchanged: $shiftState")
+            return
+        }
+        
+        // ⚡ PERFORMANCE: Throttle rapid shift state changes (e.g., from gesture misdetection)
+        if ((now - lastShiftStateChangeTime) < SHIFT_STATE_THROTTLE_MS) {
+            Log.d(TAG, "⏸️ Throttling rapid shift state change: $currentShiftState → $shiftState (${now - lastShiftStateChangeTime}ms since last)")
+            // Schedule delayed update instead of ignoring
+            scope.launch {
+                delay(SHIFT_STATE_THROTTLE_MS - (now - lastShiftStateChangeTime))
+                // Re-check state after delay - might have changed again
+                if (currentShiftState != shiftState) {
+                    refreshKeyboardForShiftStateInternal(shiftState)
+                }
+            }
+            return
+        }
+        
+        lastShiftStateChangeTime = now
+        refreshKeyboardForShiftStateInternal(shiftState)
+    }
+    
+    /**
+     * Internal implementation of shift state refresh
+     */
+    private fun refreshKeyboardForShiftStateInternal(shiftState: Int) {
+        currentShiftState = shiftState
+        
+        // ⚡ PERFORMANCE: Try to update labels only first (fast path)
         val mode = keyboardView.currentKeyboardMode
         val lang = keyboardView.currentLangCode
         
+        // For shift state changes, we can often just update labels without rebuilding
+        // Only rebuild if we're switching modes or language changed
+        val isUpperCase = shiftState != CapsShiftManager.STATE_NORMAL
+        
         scope.launch {
             try {
-                val layoutModel = adapter.buildLayoutFor(lang, mode, numberRowEnabled = numberRowEnabled)
-                keyboardView.showTypingLayout(layoutModel)
-                val isUpperCase = shiftState != CapsShiftManager.STATE_NORMAL
+                // ⚡ PERFORMANCE: Try lightweight label update first
+                val updated = keyboardView.updateKeyLabelsForShiftState(isUpperCase, shiftState == CapsShiftManager.STATE_CAPS_LOCK)
+                
+                if (!updated) {
+                    // Fallback: Check if view supports lightweight updates
+                    if (!keyboardView.supportsLightweightShiftUpdate()) {
+                        // SwipeKeyboardView - it handles shift state visually, no rebuild needed
+                        Log.d(TAG, "⚡ SwipeKeyboardView detected - shift handled visually, no rebuild needed")
+                        keyboardView.invalidate() // Just invalidate for visual update
+                    } else {
+                        // UnifiedKeyboardView but update failed - this shouldn't happen often
+                        Log.d(TAG, "⚠️ Lightweight update failed, invalidating only to avoid lag")
+                        keyboardView.invalidate()
+                    }
+                } else {
+                    Log.d(TAG, "⚡ Shift state updated via lightweight method (no rebuild)")
+                }
+                
                 Log.d(TAG, "✅ Keyboard refreshed for shift state: $shiftState (uppercase=$isUpperCase)")
             } catch (e: Exception) {
                 Log.e(TAG, "❌ Failed to refresh keyboard for shift", e)
@@ -370,10 +507,20 @@ class UnifiedLayoutController(
     }
     
     /**
+     * Clear layout cache (useful for memory management or forced refresh)
+     */
+    fun clearCache() {
+        layoutCache.clear()
+        Log.d(TAG, "🧹 Layout cache cleared")
+    }
+    
+    /**
      * Cancel all pending layout operations and cleanup.
      */
     fun clear() {
+        pendingBuildJob?.cancel()
         scope.cancel()
+        layoutCache.clear()
         capsShiftManager?.cleanup()
         languageManager?.cleanup()
         Log.d(TAG, "🧹 Unified layout controller cleared")

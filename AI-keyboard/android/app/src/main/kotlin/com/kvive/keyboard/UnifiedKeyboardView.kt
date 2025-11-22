@@ -762,6 +762,28 @@ class UnifiedKeyboardView @JvmOverloads constructor(
 
         Log.d(TAG, "✅ Showing typing layout: ${model.languageCode} [${currentKeyboardModeEnum}]")
     }
+    
+    /**
+     * ⚡ PERFORMANCE: Update key labels for shift state without rebuilding entire layout
+     * This is much faster than rebuilding the entire keyboard grid
+     * 
+     * @param isUpperCase Whether keys should be uppercase
+     * @param isCapsLock Whether caps lock is enabled (affects shift key appearance)
+     * @return true if update was successful (lightweight path), false if fallback needed
+     */
+    fun updateKeyLabelsForShiftState(isUpperCase: Boolean, isCapsLock: Boolean): Boolean {
+        // ⚡ PERFORMANCE: Only update if keyboard grid exists (UnifiedKeyboardView)
+        // SwipeKeyboardView handles shift state visually without needing label updates
+        return keyboardGridView?.updateKeyLabelsForShift(isUpperCase, isCapsLock) ?: false
+    }
+    
+    /**
+     * ⚡ PERFORMANCE: Check if this view can do lightweight shift updates
+     * Returns false for SwipeKeyboardView (which handles shift differently)
+     */
+    fun supportsLightweightShiftUpdate(): Boolean {
+        return keyboardGridView != null
+    }
 
     /**
      * Show feature panel (AI, Emoji, Clipboard, etc.)
@@ -843,7 +865,22 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     /**
      * Return to typing mode
      */
+    /**
+     * Return to typing mode
+     * ⚡ PERFORMANCE: Only rebuilds if layout changed, otherwise just switches visibility
+     */
     fun backToTyping() {
+        // ⚡ PERFORMANCE: If already in typing mode with same layout, just ensure visibility
+        if (currentMode == DisplayMode.TYPING && currentLayout != null) {
+            toolbarContainer.visibility = VISIBLE
+            suggestionContainer.visibility = if (suggestionsEnabled) VISIBLE else GONE
+            currentPanelView?.visibility = GONE
+            keyboardGridView?.visibility = VISIBLE
+            Log.d(TAG, "⚡ Fast path: Already in typing mode, just updated visibility")
+            return
+        }
+        
+        // Full rebuild only if needed
         currentLayout?.let { showTypingLayout(it) }
     }
 
@@ -950,34 +987,46 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     /**
      * Enable/disable borderless key mode
      */
+    /**
+     * ⚡ PERFORMANCE: Only rebuilds if structure changes, otherwise just invalidates
+     */
     fun setBorderless(enabled: Boolean) {
         if (borderlessMode == enabled) return
         borderlessMode = enabled
-        rebuildKeyboardGrid()
+        // ⚡ Borderless mode only affects visual appearance, not structure
+        keyboardGridView?.invalidate() // Just redraw, don't rebuild
     }
 
     /**
      * Toggle hinted number row (numeric hints on top row)
+     * ⚡ PERFORMANCE: Only affects visual hints, not structure
      */
     fun setHintedNumberRow(enabled: Boolean) {
         if (hintedNumberRow == enabled) return
         hintedNumberRow = enabled
-        rebuildKeyboardGrid()
+        // ⚡ Hints only affect visual display, not key positions
+        keyboardGridView?.invalidate() // Just redraw, don't rebuild
     }
 
     /**
      * Toggle hinted symbols (alternate character hints)
+     * ⚡ PERFORMANCE: Only affects visual hints, not structure
      */
     fun setHintedSymbols(enabled: Boolean) {
         if (hintedSymbols == enabled) return
         hintedSymbols = enabled
-        rebuildKeyboardGrid()
+        // ⚡ Hints only affect visual display, not key positions
+        keyboardGridView?.invalidate() // Just redraw, don't rebuild
     }
 
+    /**
+     * ⚡ PERFORMANCE: Number row change requires rebuild (structure changes)
+     */
     fun setNumberRowEnabled(enabled: Boolean) {
         if (numberRowActive == enabled) return
         numberRowActive = enabled
         heightManager.setNumberRowEnabled(enabled)
+        // ⚡ Number row changes structure, so rebuild is necessary
         rebuildKeyboardGrid()
     }
 
@@ -990,6 +1039,9 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     /**
      * Set key spacing
      */
+    /**
+     * ⚡ PERFORMANCE: Key spacing changes require rebuild (affects key positions)
+     */
     fun setKeySpacing(verticalDp: Int, horizontalDp: Int) {
         val clampedVertical = verticalDp.coerceAtLeast(0)
         val clampedHorizontal = horizontalDp.coerceAtLeast(0)
@@ -997,6 +1049,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
 
         keySpacingVerticalDp = clampedVertical
         keySpacingHorizontalDp = clampedHorizontal
+        // ⚡ Spacing affects key positions, rebuild is necessary
         rebuildKeyboardGrid()
     }
 
@@ -1314,11 +1367,15 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     /**
      * Adjust horizontal gutters at the screen edges (left/right)
      */
+    /**
+     * ⚡ PERFORMANCE: Edge padding changes require rebuild (affects key positions)
+     */
     fun setEdgePadding(dp: Int) {
         val clamped = dp.coerceAtLeast(0)
         if (clamped == edgePaddingDp) return
 
         edgePaddingDp = clamped
+        // ⚡ Padding affects key positions, rebuild is necessary
         rebuildKeyboardGrid()
     }
 
@@ -1525,16 +1582,22 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         renderSuggestionSlots(refreshedSlots)
         updateSuggestionSeparatorsColor(palette)
 
-        // Rebuild current view
+        // ⚡ PERFORMANCE: Only invalidate keyboard grid, don't rebuild structure
+        // Theme changes don't require rebuilding key positions, just redrawing
         when (currentMode) {
-            DisplayMode.TYPING -> currentLayout?.let { buildKeyboardGrid(it) }
-            DisplayMode.PANEL -> { /* Panel already uses ThemeManager */ }
+            DisplayMode.TYPING -> {
+                // Just invalidate - KeyboardGridView will redraw with new theme colors
+                keyboardGridView?.invalidate()
+            }
+            DisplayMode.PANEL -> { 
+                /* Panel already uses ThemeManager */ 
+            }
         }
 
         invalidate()
         requestLayout()
 
-        Log.d(TAG, "✅ Theme applied")
+        Log.d(TAG, "✅ Theme applied (lightweight update)")
     }
 
     /**
@@ -2050,10 +2113,6 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         if (dur >= MIN_SWIPE_TIME_MS && dist >= MIN_SWIPE_DISTANCE_PX) {
             val normalized = normalizePath(fingerPoints)
             val keySeq = keyboardGridView?.resolveKeySequence(normalized) ?: emptyList()
-            
-            // Log swipe path details for debugging
-            Log.d(TAG, "✅ Swipe completed: ${keySeq.size} keys, ${normalized.size} points")
-            Log.d(TAG, "   First point: ${normalized.firstOrNull()}, Last point: ${normalized.lastOrNull()}")
             
             if (swipeEnabled) {
                 swipeListener?.onSwipeDetected(keySeq, normalized)
@@ -2785,6 +2844,56 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         fun clearTapEffect() {
             tapEffectState = null
             invalidate()
+        }
+        
+        /**
+         * ⚡ PERFORMANCE: Update key labels for shift state without rebuilding entire layout
+         * This is much faster than calling buildKeys() again
+         * 
+         * @param isUpperCase Whether keys should be uppercase
+         * @param isCapsLock Whether caps lock is enabled
+         * @return true if update was successful, false if keys haven't been built yet
+         */
+        fun updateKeyLabelsForShift(isUpperCase: Boolean, isCapsLock: Boolean): Boolean {
+            if (dynamicKeys.isEmpty()) {
+                Log.w(TAG, "⚠️ Cannot update labels - keys not built yet")
+                return false
+            }
+            
+            // Update labels in-place (create new DynamicKey instances with updated labels)
+            val updatedKeys = dynamicKeys.map { key ->
+                // Skip special keys that shouldn't change case
+                val keyType = getKeyTypeFromCode(key.code)
+                if (keyType in setOf("space", "enter", "backspace", "symbols", "emoji", "mic", "globe", "shift")) {
+                    // For shift key, update visual state but don't change label
+                    key
+                } else {
+                    // Update label case for letter keys
+                    val newLabel = if (isUpperCase && key.label.length == 1 && key.label[0].isLetter()) {
+                        key.label.uppercase()
+                    } else if (!isUpperCase && key.label.length == 1 && key.label[0].isLetter()) {
+                        key.label.lowercase()
+                    } else {
+                        key.label // Keep as-is for non-letter keys
+                    }
+                    
+                    if (newLabel != key.label) {
+                        key.copy(label = newLabel)
+                    } else {
+                        key
+                    }
+                }
+            }
+            
+            // Replace the list (this is fast - just reference swap)
+            dynamicKeys.clear()
+            dynamicKeys.addAll(updatedKeys)
+            
+            // Invalidate to redraw with new labels
+            invalidate()
+            
+            Log.d(TAG, "⚡ Updated key labels for shift state (uppercase=$isUpperCase, capsLock=$isCapsLock)")
+            return true
         }
         
         private fun resolveIndentRatio(

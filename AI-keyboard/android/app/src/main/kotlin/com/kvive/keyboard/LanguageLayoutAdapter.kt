@@ -3,13 +3,15 @@ package com.kvive.keyboard
 import android.content.Context
 import android.util.Log
 import com.google.firebase.storage.FirebaseStorage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.io.InputStream
 import java.nio.charset.Charset
-import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
 
 /**
  * Modern Dynamic Multilingual Layout System
@@ -17,7 +19,7 @@ import kotlin.coroutines.suspendCoroutine
  * Loads keyboard layouts using:
  * 1. Base templates (QWERTY, INSCRIPT, ARABIC) - define physical key positions
  * 2. Per-language keymaps - define character mappings for each language
- * 3. Firebase fallback - downloads missing keymaps from cloud storage
+ * 3. Optional background Firebase sync (versioned, non-blocking) to refresh cache
  * 
  * Architecture:
  * - Template defines the grid structure (rows/cols)
@@ -84,6 +86,10 @@ class LanguageLayoutAdapter(private val context: Context) {
             if (!exists()) mkdirs()
         }
     }
+    private val memoryCache = mutableMapOf<String, JSONObject>()
+    private val versionCache = mutableMapOf<String, Int>()
+    private val firebaseSyncScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val attemptedFirebaseSync = mutableSetOf<String>()
     
     private var showUtilityKey = true
     
@@ -146,11 +152,11 @@ class LanguageLayoutAdapter(private val context: Context) {
      */
     suspend fun buildLayoutFor(languageCode: String, mode: KeyboardMode, numberRowEnabled: Boolean): LayoutModel {
         Log.d(TAG, "🔧 Building layout for: $languageCode, mode: $mode, numberRow: $numberRowEnabled")
+        val keymap = loadKeymap(languageCode)
         
         // Step 1: Determine template file based on mode
         val templateName = when (mode) {
             KeyboardMode.LETTERS -> {
-                val keymap = loadKeymap(languageCode)
                 // Get template from keymap or use default based on language
                 val defaultTemplate = when (languageCode) {
                     in listOf("hi", "te", "ta", "ml", "gu", "bn", "kn", "or", "pa") -> "inscript_template.json"
@@ -170,8 +176,6 @@ class LanguageLayoutAdapter(private val context: Context) {
         
         // Step 3: Apply language-specific mappings (for letters mode) or use template as-is
         val rows = if (mode == KeyboardMode.LETTERS) {
-            val keymap = loadKeymap(languageCode)
-
             val shiftActive = KeyboardStateManager.isShiftActive() || KeyboardStateManager.isCapsLockEnabled()
             val primaryLayer = when {
                 shiftActive && keymap.has("uppercase") -> keymap.optJSONObject("uppercase")
@@ -209,7 +213,6 @@ class LanguageLayoutAdapter(private val context: Context) {
         
         // Step 4: Get text direction (only relevant for letters mode)
         val direction = if (mode == KeyboardMode.LETTERS) {
-            val keymap = loadKeymap(languageCode)
             keymap.optString("direction", "LTR")
         } else {
             "LTR"
@@ -504,80 +507,49 @@ class LanguageLayoutAdapter(private val context: Context) {
     }
     
     /**
-     * Load keymap for a language (try local, then Firebase)
+     * Load keymap for a language using RAM first, then disk cache, then bundled assets.
+     * Never blocks on network; background sync is scheduled separately.
      */
-    private suspend fun loadKeymap(languageCode: String): JSONObject {
-        // Try local assets first
-        val localPath = "keymaps/$languageCode.json"
-        try {
-            val inputStream = context.assets.open(localPath)
-            val jsonStr = inputStream.bufferedReader(Charset.forName("UTF-8")).use { it.readText() }
-            Log.d(TAG, "✅ Loaded local keymap: $languageCode")
-            return JSONObject(jsonStr)
-        } catch (e: Exception) {
-            Log.w(TAG, "⚠️ Local keymap not found for $languageCode, trying Firebase")
+    private fun loadKeymap(languageCode: String): JSONObject {
+        memoryCache[languageCode]?.let { cached ->
+            scheduleFirebaseSync(languageCode)
+            return cached
         }
-        
-        // Try cache
+        scheduleFirebaseSync(languageCode)
+
+        // Prefer cached downloads (may be newer than bundled assets)
         val cachedFile = File(cacheDir, "$languageCode.json")
         if (cachedFile.exists()) {
             try {
                 val jsonStr = cachedFile.readText()
-                Log.d(TAG, "✅ Loaded cached keymap: $languageCode")
-                return JSONObject(jsonStr)
+                val keymap = JSONObject(jsonStr)
+                cacheKeymap(languageCode, keymap, jsonStr)
+                return keymap
             } catch (e: Exception) {
                 Log.w(TAG, "⚠️ Failed to read cached keymap: $languageCode", e)
             }
         }
-        
-        // Try Firebase
-        return try {
-            fetchFromFirebase(languageCode)
-        } catch (e: Exception) {
-            Log.w(TAG, "⚠️ Failed to fetch from Firebase: $languageCode", e)
-            // Return basic fallback keymap
-            createFallbackKeymap(languageCode)
-        }
-    }
-    
-    /**
-     * Fetch keymap from Firebase Storage
-     */
-    private suspend fun fetchFromFirebase(languageCode: String): JSONObject = suspendCoroutine { continuation ->
+
+        // Fallback to bundled assets
+        val localPath = "keymaps/$languageCode.json"
         try {
-            Log.d(TAG, "🌐 Fetching keymap from Firebase: $languageCode")
-            val storage = FirebaseStorage.getInstance()
-            val ref = storage.reference.child("keymaps/$languageCode.json")
-            val tempFile = File.createTempFile(languageCode, ".json")
-            
-            ref.getFile(tempFile)
-                .addOnSuccessListener {
-                    try {
-                        val jsonStr = tempFile.readText()
-                        val keymap = JSONObject(jsonStr)
-                        
-                        // Cache for future use
-                        val cachedFile = File(cacheDir, "$languageCode.json")
-                        cachedFile.writeText(jsonStr)
-                        
-                        Log.d(TAG, "✅ Downloaded and cached keymap: $languageCode")
-                        tempFile.delete()
-                        continuation.resume(keymap)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "❌ Error parsing Firebase keymap", e)
-                        tempFile.delete()
-                        continuation.resume(createFallbackKeymap(languageCode))
-                    }
-                }
-                .addOnFailureListener { exception ->
-                    Log.w(TAG, "⚠️ Firebase fetch failed for $languageCode", exception)
-                    tempFile.delete()
-                    continuation.resume(createFallbackKeymap(languageCode))
-                }
+            val inputStream = context.assets.open(localPath)
+            val jsonStr = inputStream.bufferedReader(Charset.forName("UTF-8")).use { it.readText() }
+            val keymap = JSONObject(jsonStr)
+            cacheKeymap(languageCode, keymap, jsonStr)
+            // Mark version as baseline 0 so background sync can upgrade quietly
+            writeLocalVersion(languageCode, versionCache[languageCode] ?: 0)
+            scheduleFirebaseSync(languageCode)
+            Log.d(TAG, "✅ Loaded local keymap into RAM: $languageCode")
+            return keymap
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Firebase fetch error", e)
-            continuation.resume(createFallbackKeymap(languageCode))
+            Log.w(TAG, "⚠️ Local keymap not found for $languageCode, using fallback", e)
         }
+
+        val fallback = createFallbackKeymap(languageCode)
+        cacheKeymap(languageCode, fallback)
+        scheduleFirebaseSync(languageCode)
+        return fallback
     }
     
     /**
@@ -641,16 +613,6 @@ class LanguageLayoutAdapter(private val context: Context) {
     }
     
     /**
-     * Preload keymap for a language (async)
-     */
-    suspend fun preloadKeymap(languageCode: String) {
-        if (!hasLocalKeymap(languageCode) && !hasCachedKeymap(languageCode)) {
-            Log.d(TAG, "📥 Preloading keymap: $languageCode")
-            loadKeymap(languageCode)
-        }
-    }
-    
-    /**
      * Clear cache for a specific language
      */
     fun clearCache(languageCode: String) {
@@ -691,6 +653,95 @@ class LanguageLayoutAdapter(private val context: Context) {
         }
         
         return keymaps
+    }
+
+    /**
+     * Preload all keymaps into RAM and disk cache (no network).
+     */
+    suspend fun preloadKeymaps(languageCodes: List<String>) {
+        languageCodes.forEach { lang ->
+            preloadKeymap(lang)
+        }
+    }
+
+    /**
+     * Preload a single keymap (no network). Schedules background sync separately.
+     */
+    suspend fun preloadKeymap(languageCode: String) {
+        loadKeymap(languageCode)
+        scheduleFirebaseSync(languageCode)
+    }
+
+    /**
+     * Cache keymap in memory and on disk for fast subsequent builds.
+     */
+    private fun cacheKeymap(languageCode: String, keymap: JSONObject, raw: String? = null) {
+        memoryCache[languageCode] = keymap
+        try {
+            val jsonStr = raw ?: keymap.toString()
+            File(cacheDir, "$languageCode.json").writeText(jsonStr)
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ Unable to cache keymap on disk for $languageCode", e)
+        }
+    }
+
+    /**
+     * Schedule a non-blocking Firebase sync to refresh keymaps if newer versions exist.
+     */
+    private fun scheduleFirebaseSync(languageCode: String) {
+        if (attemptedFirebaseSync.contains(languageCode)) return
+        attemptedFirebaseSync.add(languageCode)
+        firebaseSyncScope.launch {
+            tryFirebaseDownloadOnce(languageCode)
+        }
+    }
+
+    /**
+     * Fetch updated keymap + version from Firebase once per session without blocking UI.
+     * Uses version files (keymaps/lang.version) to avoid unnecessary downloads.
+     */
+    private suspend fun tryFirebaseDownloadOnce(languageCode: String) {
+        try {
+            val storage = FirebaseStorage.getInstance().reference.child("keymaps")
+            val remoteVersionBytes = storage.child("$languageCode.version").getBytes(64).await()
+            val remoteVersion = remoteVersionBytes.toString(Charsets.UTF_8).trim().toIntOrNull() ?: 0
+            val localVersion = readLocalVersion(languageCode)
+
+            if (remoteVersion <= localVersion) {
+                Log.d(TAG, "📦 Keymap up-to-date for $languageCode (v$localVersion)")
+                return
+            }
+
+            val keymapBytes = storage.child("$languageCode.json").getBytes(512 * 1024).await()
+            val jsonStr = keymapBytes.toString(Charsets.UTF_8)
+            val keymap = JSONObject(jsonStr)
+            cacheKeymap(languageCode, keymap, jsonStr)
+            writeLocalVersion(languageCode, remoteVersion)
+            Log.d(TAG, "✅ Refreshed keymap from Firebase for $languageCode → v$remoteVersion")
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ Background keymap sync failed for $languageCode (non-blocking)", e)
+        }
+    }
+
+    private fun readLocalVersion(languageCode: String): Int {
+        versionCache[languageCode]?.let { return it }
+        val versionFile = File(cacheDir, "$languageCode.version")
+        val version = try {
+            versionFile.takeIf { it.exists() }?.readText()?.trim()?.toIntOrNull() ?: 0
+        } catch (_: Exception) {
+            0
+        }
+        versionCache[languageCode] = version
+        return version
+    }
+
+    private fun writeLocalVersion(languageCode: String, version: Int) {
+        versionCache[languageCode] = version
+        try {
+            File(cacheDir, "$languageCode.version").writeText(version.toString())
+        } catch (e: Exception) {
+            Log.w(TAG, "⚠️ Failed to persist keymap version for $languageCode", e)
+        }
     }
     
     /**

@@ -368,6 +368,7 @@ class AIKeyboardService : InputMethodService(),
     // Advanced keyboard state
     private var shiftState = SHIFT_OFF
     private var lastShiftPressTime = 0L
+    private var lastLegacyShiftVisualState = CapsShiftManager.STATE_NORMAL
     
     // Long-press detection for accent characters (spacebar long-press removed)
     private var currentLongPressKey: Int = -1
@@ -447,6 +448,12 @@ class AIKeyboardService : InputMethodService(),
     private var selectedSoundProfile: String = "default"
     private var customSoundUri: String? = null
     private var selectedTapEffectStyle: String = "ripple"
+    private var lastSoundConfigSignature: String? = null
+    
+    // ✅ Cached sound settings to prevent repeated loading
+    private var cachedSoundEnabled: Boolean? = null
+    private var cachedSoundVolume: Float? = null
+    private var cachedSoundIntensity: Int? = null
     
     // Language cycling - Now managed by SharedPreferences
     private var enabledLanguages = listOf("en")
@@ -660,6 +667,9 @@ class AIKeyboardService : InputMethodService(),
                                 Log.d(TAG, "📥 Loading settings from broadcast...")
                                 lastSettingsApply = currentTime
                                 
+                                // ✅ FIX: Explicitly reload sound settings when settings change
+                                onSettingsChanged()
+                                
                                 // UNIFIED SETTINGS LOAD - single read from all prefs
                                 applyLoadedSettings(settingsManager.loadAll(), logSuccess = false)
                                 
@@ -678,9 +688,6 @@ class AIKeyboardService : InputMethodService(),
                                         Log.d(TAG, "✅ Layout reloaded with numberRow=$numberRowEnabled")
                                     }
                                 }
-                                
-                                // ✅ Update AI prompt displays in panels (if custom prompt changed)
-                                updateAIPanelsWithNewPrompt()
                                 
                                 // ✅ Update UnifiedSuggestionController settings
                                 updateSuggestionControllerSettings()
@@ -824,18 +831,6 @@ class AIKeyboardService : InputMethodService(),
                             }
                         }
                     }
-                    "AI_PROMPT_UPDATED" -> {
-                        Log.d(TAG, "AI_PROMPT_UPDATED broadcast received!")
-                        mainHandler.post {
-                            try {
-                                Log.d(TAG, "🧠 Updating AI panels with new custom prompt...")
-                                updateAIPanelsWithNewPrompt()
-                                Log.d(TAG, "✅ AI panels updated successfully")
-                            } catch (e: Exception) {
-                                Log.e(TAG, "❌ Error updating AI panels from broadcast", e)
-                            }
-                        }
-                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error in broadcast receiver", e)
@@ -869,40 +864,7 @@ class AIKeyboardService : InputMethodService(),
         }
         // Initialize keyboard height manager
         keyboardHeightManager = KeyboardHeightManager(this)
-        
-        // Initialize PromptManager and register prompt receiver
-        try {
-            PromptManager.init(this)
-            val intentFilter = IntentFilter("com.kvive.keyboard.PROMPTS_UPDATED")
-            com.kvive.keyboard.utils.BroadcastUtils.safeRegisterReceiver(this, promptReceiver, intentFilter)
-            Log.d(TAG, "✅ PromptManager initialized and receiver registered")
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error initializing PromptManager", e)
-        }
-        
-        // Initialize OpenAI configuration first (critical for AI features)
-        try {
-            val config = OpenAIConfig.getInstance(this)
-            // Enable backend proxy mode by default (API key stored on server)
-            val prefs = getSharedPreferences("openai_secure_prefs", Context.MODE_PRIVATE)
-            prefs.edit().putBoolean("backend_proxy_enabled", true).apply()
-            // Enable AI features by default when using backend proxy
-            config.setAIFeaturesEnabled(true)
-            Log.d(TAG, "OpenAI configuration initialized successfully (backend proxy mode)")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error initializing OpenAI configuration", e)
-        }
-        
-        
-        // Initialize Advanced AI Service for toolbar panels
-        try {
-            advancedAIService = AdvancedAIService(this)
-            advancedAIService.preloadWarmup()
-            Log.d(TAG, "✅ AdvancedAIService initialized and warmed up")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error initializing AdvancedAIService", e)
-        }
-        
+
         // Initialize settings and theme
         settings = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
         settingsManager = SettingsManager(this)
@@ -934,48 +896,7 @@ class AIKeyboardService : InputMethodService(),
         
         // Initialize multilingual components (now safe)
         initializeMultilingualComponents()
-        
-        // Default English activation using unified function
-        coroutineScope.launch {
-            try {
-                Log.d(TAG, "🌍 Starting default English activation...")
-                activateLanguage("en")
-                Log.d(TAG, "🌍 Default English activation complete (Firebase cache)")
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Failed default English activation", e)
-            }
-        }
 
-        // Initialize Enhanced AI Service Bridge
-        initializeAIBridge()
-        
-        // Initialize Unified AI Service for enhanced features
-        try {
-            unifiedAIService = UnifiedAIService(this)
-            Log.d(TAG, "🧠 UnifiedAI Service initialized successfully")
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to initialize UnifiedAI Service", e)
-        }
-        
-        // Initialize Advanced AI Service
-        advancedAIService = AdvancedAIService(this)
-        Log.d(TAG, "Advanced AI Service initialized")
-        
-        // STEP 2: Check AI readiness after initialization
-        checkAIReadiness()
-        
-        // Load word frequencies from Firestore for enhanced autocorrect
-        if (::autocorrectEngine.isInitialized && autocorrectEngine.hasLanguage(currentLanguage)) {
-            coroutineScope.launch {
-                delay(2000) // Wait for initialization to complete
-                val currentLang = currentLanguage
-                autocorrectEngine.preloadLanguages(listOf(currentLang))
-                Log.d(TAG, "📊 Firestore word frequencies loading for $currentLang")
-            }
-        }
-        
-        
-        
         // Initialize Theme MethodChannel
         initializeThemeChannel()
         
@@ -1000,48 +921,6 @@ class AIKeyboardService : InputMethodService(),
         
         // ClipboardHistoryManager already initialized in initializeCoreComponents()
         // Just complete setup with listener
-        if (::clipboardHistoryManager.isInitialized) {
-            clipboardHistoryManager.initialize()
-            clipboardHistoryManager.addListener(clipboardHistoryListener)
-            reloadClipboardSettings()
-        }
-        
-        // DictionaryManager already initialized in initializeCoreComponents()
-        // Just complete setup with listener
-        if (::dictionaryManager.isInitialized) {
-            dictionaryManager.initialize()
-            dictionaryManager.addListener(dictionaryListener)
-        }
-        
-        // User dictionary manager already initialized in initializeCoreComponents()
-        // Phase 3: Multi-language sync integration
-        if (::userDictionaryManager.isInitialized) {
-            val currentLang = dictionaryManager.getCurrentLanguage()
-            
-            // Sync learned words from cloud
-            userDictionaryManager.syncFromCloud(currentLang)
-            Log.d(TAG, "✅ User dictionary sync initiated for $currentLang")
-            
-            // Connect dictionary manager to cloud sync (per-language)
-            dictionaryManager.setCloudSyncCallback { shortcuts ->
-                // Sync shortcuts to Firebase via UserDictionaryManager with language context
-                userDictionaryManager.syncShortcutsToCloud(shortcuts, currentLang)
-                Log.d(TAG, "☁️ Synced ${shortcuts.size} shortcuts for $currentLang")
-            }
-            
-            // Load shortcuts from cloud and import
-            userDictionaryManager.loadShortcutsFromCloud(currentLang) { cloudShortcuts ->
-                dictionaryManager.importFromCloud(cloudShortcuts)
-                Log.d(TAG, "✅ Imported ${cloudShortcuts.size} shortcuts from cloud for $currentLang")
-            }
-            
-            Log.d(TAG, "✅ Custom shortcuts cloud sync enabled for $currentLang")
-        }
-        
-        Log.d(TAG, "User dictionary manager initialized")
-        
-        // Set up periodic cloud sync (every 10 minutes)
-        setupPeriodicSync()
         
         // Initialize keyboard settings with defaults first
         keyboardSettings = KeyboardSettings()
@@ -1058,7 +937,6 @@ class AIKeyboardService : InputMethodService(),
                 addAction("com.kvive.keyboard.EMOJI_SETTINGS_CHANGED")
                 addAction("com.kvive.keyboard.CLEAR_USER_WORDS")
                 addAction("com.kvive.keyboard.LANGUAGE_CHANGED")
-                addAction("AI_PROMPT_UPDATED")
             }
             // Use RECEIVER_NOT_EXPORTED for Android 13+ compatibility
             com.kvive.keyboard.utils.BroadcastUtils.safeRegisterReceiver(this, settingsReceiver, filter)
@@ -1072,19 +950,149 @@ class AIKeyboardService : InputMethodService(),
         
         // Load language preferences
         loadLanguagePreferences()
-        
-        // Initialize transliteration for Indic languages (Phase 1)
-        initializeTransliteration()
-        
-        // Phase 2: Initialize multilingual dictionary
-        // TODO: Integrate with existing MultilingualDictionary and AutocorrectEngine
-        // initializeMultilingualDictionary()
-        
-        // Run diagnostic audit (analysis phase)
-        // Commented out - causes error with uninitialized capsShiftManager
-        // runDiagnosticAudit()
-        
+
+        // Preload all enabled keymaps into RAM/disk cache off the main thread
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                languageLayoutAdapter.preloadKeymaps(enabledLanguages)
+                Log.d(TAG, "✅ Preloaded keymaps for languages: $enabledLanguages")
+            } catch (e: Exception) {
+                Log.w(TAG, "⚠️ Failed to preload keymaps", e)
+            }
+        }
+
+        // Kick off heavy async initialization after UI thread is free
+        mainHandler.post {
+            initializeAsyncComponents()
+        }
             // onCreate complete
+    }
+    
+    /**
+     * Heavy initialization staged off the main thread to avoid onCreate jank.
+     * Runs after the keyboard UI is ready.
+     */
+    private fun initializeAsyncComponents() = coroutineScope.launch(Dispatchers.IO) {
+        try {
+            Log.d(TAG, "⏳ Starting async initialization pipeline")
+
+            // Prompt loading and receiver registration (reads large assets)
+            try {
+                PromptManager.init(this@AIKeyboardService)
+                withContext(Dispatchers.Main) {
+                    val intentFilter = IntentFilter("com.kvive.keyboard.PROMPTS_UPDATED")
+                    com.kvive.keyboard.utils.BroadcastUtils.safeRegisterReceiver(
+                        this@AIKeyboardService,
+                        promptReceiver,
+                        intentFilter
+                    )
+                }
+                Log.d(TAG, "✅ PromptManager initialized asynchronously")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error initializing PromptManager asynchronously", e)
+            }
+
+            // OpenAI and AI service warmup
+            try {
+                withContext(Dispatchers.Default) {
+                    val config = OpenAIConfig.getInstance(this@AIKeyboardService)
+                    val prefs = getSharedPreferences("openai_secure_prefs", Context.MODE_PRIVATE)
+                    prefs.edit().putBoolean("backend_proxy_enabled", true).apply()
+                    config.setAIFeaturesEnabled(true)
+                }
+                withContext(Dispatchers.Default) {
+                    advancedAIService = AdvancedAIService(this@AIKeyboardService)
+                    advancedAIService.preloadWarmup()
+                }
+                withContext(Dispatchers.Default) {
+                    unifiedAIService = UnifiedAIService(this@AIKeyboardService)
+                }
+                withContext(Dispatchers.Main) {
+                    initializeAIBridge()
+                    checkAIReadiness()
+                }
+                Log.d(TAG, "🧠 AI services initialized off main thread")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error initializing AI services asynchronously", e)
+            }
+
+            // Dictionary + clipboard initialization and cloud sync moved off main
+            withContext(Dispatchers.Default) {
+                if (::clipboardHistoryManager.isInitialized) {
+                    clipboardHistoryManager.initialize()
+                }
+                if (::dictionaryManager.isInitialized) {
+                    dictionaryManager.initialize()
+                }
+            }
+            withContext(Dispatchers.Main) {
+                if (::clipboardHistoryManager.isInitialized) {
+                    clipboardHistoryManager.addListener(clipboardHistoryListener)
+                    reloadClipboardSettings()
+                }
+                if (::dictionaryManager.isInitialized) {
+                    dictionaryManager.addListener(dictionaryListener)
+                }
+            }
+
+            if (::userDictionaryManager.isInitialized && ::dictionaryManager.isInitialized) {
+                val currentLang = dictionaryManager.getCurrentLanguage()
+                try {
+                    userDictionaryManager.syncFromCloud(currentLang)
+                    dictionaryManager.setCloudSyncCallback { shortcuts ->
+                        userDictionaryManager.syncShortcutsToCloud(shortcuts, currentLang)
+                        Log.d(TAG, "☁️ Synced ${shortcuts.size} shortcuts for $currentLang")
+                    }
+                    userDictionaryManager.loadShortcutsFromCloud(currentLang) { cloudShortcuts ->
+                        dictionaryManager.importFromCloud(cloudShortcuts)
+                        Log.d(TAG, "✅ Imported ${cloudShortcuts.size} shortcuts from cloud for $currentLang")
+                    }
+                    withContext(Dispatchers.Main) {
+                        setupPeriodicSync()
+                    }
+                    Log.d(TAG, "✅ Custom shortcuts cloud sync enabled asynchronously for $currentLang")
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error syncing user dictionary from cloud", e)
+                }
+            }
+
+            // Kick off language activation and transliteration outside onCreate
+            try {
+                val initialLanguage = currentLanguage
+                activateLanguage(initialLanguage)
+
+                val enabled = languageManager.getEnabledLanguages()
+                val otherLanguages = enabled.filter { it != initialLanguage }
+                if (otherLanguages.isNotEmpty()) {
+                    otherLanguages.forEach { lang ->
+                        launch {
+                            try {
+                                activateLanguage(lang)
+                                Log.d(TAG, "✅ Background activated language: $lang")
+                            } catch (langError: Exception) {
+                                Log.w(TAG, "⚠️ Failed background activation for $lang", langError)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error during async language activation", e)
+            }
+
+            withContext(Dispatchers.Main) {
+                initializeTransliteration()
+            }
+
+            if (::autocorrectEngine.isInitialized) {
+                val lang = currentLanguage
+                autocorrectEngine.preloadLanguages(listOf(lang))
+                Log.d(TAG, "📊 Autocorrect preload triggered asynchronously for $lang")
+            }
+
+            Log.d(TAG, "✅ Heavy async components initialized safely")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error in async init pipeline", e)
+        }
     }
     
     /**
@@ -1251,13 +1259,7 @@ class AIKeyboardService : InputMethodService(),
                 refreshLanguageResourcesAsync()
             }
             Log.d(TAG, "✅ Change observers wired for LanguageResources refresh")
-            
-            // Initialize transliteration engine for default language
-            transliterationEngine = TransliterationEngine(this, "en")
-            Log.d(TAG, "✅ TransliterationEngine initialized")
-            
-            // IndicScriptHelper removed - was never used (dead code cleanup)
-            
+
             // Initialize unified autocorrect engine (NEW UNIFIED API)
             autocorrectEngine = UnifiedAutocorrectEngine(
                 context = this,
@@ -1272,37 +1274,7 @@ class AIKeyboardService : InputMethodService(),
                 updateSuggestionUI(suggestions)
             }
             Log.d(TAG, "✅ Suggestion callback attached to autocorrect engine")
-            
-            // Initialize current language using unified activation function
-            coroutineScope.launch {
-                try {
-                    Log.d(TAG, "🌐 Activating current language: $currentLanguage")
-                    activateLanguage(currentLanguage)
-                    
-                    // Background preload additional enabled languages
-                    val enabledLanguages = languageManager.getEnabledLanguages()
-                    val otherLanguages = enabledLanguages.filter { it != currentLanguage }
-                    
-                    if (otherLanguages.isNotEmpty()) {
-                        Log.d(TAG, "🌍 Background preloading additional languages: $otherLanguages")
-                        
-                        launch(Dispatchers.Default) {
-                            otherLanguages.forEach { lang ->
-                                try {
-                                    activateLanguage(lang)
-                                    Log.d(TAG, "✅ Background activated: $lang")
-                                } catch (e: Exception) {
-                                    Log.w(TAG, "⚠️ Failed to activate $lang in background: ${e.message}")
-                                }
-                            }
-                        }
-                    }
-                    
-                } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error in language activation", e)
-                }
-            }
-            
+
             // ✅ Initialize UnifiedSuggestionController (replaces SuggestionsPipeline)
             unifiedSuggestionController = UnifiedSuggestionController(
                 context = this,
@@ -1407,46 +1379,6 @@ class AIKeyboardService : InputMethodService(),
             // Retry after delay, but don't block autocorrect - it works independently
             Log.d(TAG, "⏳ AI services still initializing... (autocorrect available)")
             mainHandler.postDelayed({ checkAIReadiness() }, 500)
-        }
-    }
-    
-    /**
-     * Run one-time diagnostic audit to report current feature status
-     */
-    private fun runDiagnosticAudit() {
-        try {
-            // Check for presence of key features
-            val hasUpdateAISuggestions = false // Method not found in current implementation
-            val hasSuggestionContainerInflation = true // suggestionContainer is created in onCreateInputView
-            val hasEmojiPipeline = true // GboardEmojiPanel exists
-            val hasNextWordModel = languageManager != null
-            val hasClipboardSuggester = clipboardHistoryManager != null
-            val hasAutocap = capsShiftManager != null
-            val hasDoubleSpacePeriod = settings.getBoolean("double_space_period", true)
-            val hasPopupPreviewSetting = settings.contains("popup_enabled")
-            val hasDictionaryManager = dictionaryManager != null
-            val hasLanguageManager = languageManager != null
-            val hasAutocorrectEngine = true // UnifiedAutocorrectEngine with built-in swipe support
-            
-            Log.d(TAG, "✅ Diagnostic Check: updateAISuggestions=$hasUpdateAISuggestions, " +
-                    "suggestionContainer=$hasSuggestionContainerInflation, " +
-                    "emoji=$hasEmojiPipeline, nextWord=$hasNextWordModel, " +
-                    "clipboard=$hasClipboardSuggester, autocap=$hasAutocap, " +
-                    "doubleSpace=$hasDoubleSpacePeriod, popup=$hasPopupPreviewSetting, " +
-                    "dictionary=$hasDictionaryManager, language=$hasLanguageManager, " +
-                    "autocorrect=$hasAutocorrectEngine")
-            
-            // Report feature gaps
-            val gaps = mutableListOf<String>()
-            if (!hasUpdateAISuggestions) gaps.add("Unified updateAISuggestions method")
-            if (!hasPopupPreviewSetting) gaps.add("Popup preview toggle in settings")
-            
-            if (gaps.isNotEmpty()) {
-                Log.w(TAG, "⚠️ Feature gaps detected: ${gaps.joinToString(", ")}")
-            }
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "Error running diagnostic audit", e)
         }
     }
     
@@ -1585,30 +1517,14 @@ class AIKeyboardService : InputMethodService(),
             if (!p.contains("flutter.keyboard.instantLongPressSelectFirst")) {
                 instantLongPressSelect = p.getBooleanCompat("keyboard.instantLongPressSelectFirst", instantLongPressSelect)
             }
-            val soundEnabledPref = p.getBoolean("flutter.sound_enabled", true)
-            val soundIntensity = p.getIntCompat("flutter.sound_intensity", 2)
+            
+            // ✅ FIX: Load sound settings only when they change (prevents log spam)
+            loadSoundSettingsIfNeeded()
+            
+            // Load vibration settings (still needed for vibrationEnabled variable)
             val hapticIntensity = p.getIntCompat("flutter.haptic_intensity", 2)
             val vibrationEnabledPref = p.getBoolean("flutter.vibration_enabled", true)
-            
-            // ✅ CRITICAL: Read sound volume from Flutter preferences (0-100 scale, convert to 0-1)
-            val soundVolumePercent = p.getIntCompat("flutter.sound_volume", 50) // Default 50%
-            val soundVolumeFloat = (soundVolumePercent / 100.0f).coerceIn(0f, 1f)
-            this.soundVolume = soundVolumeFloat
-            
-            // ✅ CRITICAL: Update instance variables
-            this.soundEnabled = soundEnabledPref
             this.vibrationEnabled = vibrationEnabledPref
-            
-            // Update granular sound/vibration settings
-            if (soundEnabledPref) {
-                keyPressSounds = p.getBoolean("flutter.key_press_sounds", true)
-                longPressSounds = p.getBoolean("flutter.long_press_sounds", true)
-                repeatedActionSounds = p.getBoolean("flutter.repeated_action_sounds", true)
-            } else {
-                keyPressSounds = false
-                longPressSounds = false
-                repeatedActionSounds = false
-            }
             
             if (vibrationEnabledPref) {
                 keyPressVibration = p.getBoolean("flutter.key_press_vibration", true)
@@ -1620,11 +1536,8 @@ class AIKeyboardService : InputMethodService(),
                 repeatedActionVibration = false
             }
             
-            Log.d(TAG, "🔊 Sound settings: enabled=$soundEnabledPref, volume=$soundVolumeFloat (${soundVolumePercent}%), intensity=$soundIntensity")
-            Log.d(TAG, "📳 Vibration settings: enabled=$vibrationEnabledPref, keyPress=$keyPressVibration, longPress=$longPressVibration, repeated=$repeatedActionVibration")
-            
-            // Configure sound manager with updated settings
-            configureSoundManager()
+            // Log vibration settings only when they change (optional - can be removed if still spamming)
+            // Log.d(TAG, "📳 Vibration settings: enabled=$vibrationEnabledPref, keyPress=$keyPressVibration, longPress=$longPressVibration, repeated=$repeatedActionVibration")
 
             val gesturePrefs = readGestureSettings(p)
             applyGestureSettings(gesturePrefs)
@@ -1708,7 +1621,7 @@ class AIKeyboardService : InputMethodService(),
                 
                 // Interaction settings
                 view.setLongPressDelay(longPressDelay)
-                view.setSoundEnabled(soundEnabledPref, soundIntensity)
+                view.setSoundEnabled(soundEnabled, soundIntensity)
                 view.setHapticIntensity(hapticIntensity)
                 
                 // CRITICAL: Force complete redraw and layout recalculation
@@ -1836,12 +1749,10 @@ class AIKeyboardService : InputMethodService(),
         }
 
         if (action == GestureAction.NONE) {
-            Log.d(TAG, "⚪ Gesture ignored for source=$source (action=NONE)")
             return
         }
 
         val handled = performGestureAction(action, source)
-        Log.d(TAG, "🎬 Gesture action executed: source=$source action=$action handled=$handled")
     }
 
     private fun performGestureAction(action: GestureAction, source: GestureSource): Boolean {
@@ -1989,7 +1900,87 @@ class AIKeyboardService : InputMethodService(),
         applyTapEffectStyle()
     }
 
+    /**
+     * Load sound settings only when they actually change.
+     * This prevents log spam from repeated keyboard rebuilds.
+     * Call this explicitly when settings change, not on every keyboard refresh.
+     */
+    private fun loadSoundSettingsIfNeeded(): Boolean {
+        val p = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        val enabled = p.getBoolean("flutter.sound_enabled", true)
+        val soundVolumePercent = p.getIntCompat("flutter.sound_volume", 50)
+        val volume = (soundVolumePercent / 100.0f).coerceIn(0f, 1f)
+        val intensity = p.getIntCompat("flutter.sound_intensity", 2)
+        
+        // Check if settings actually changed
+        if (cachedSoundEnabled == enabled && 
+            cachedSoundVolume == volume && 
+            cachedSoundIntensity == intensity) {
+            // Settings unchanged, no need to reload
+            return false
+        }
+        
+        // Settings changed - update cache and apply
+        cachedSoundEnabled = enabled
+        cachedSoundVolume = volume
+        cachedSoundIntensity = intensity
+        
+        // Update instance variables
+        this.soundEnabled = enabled
+        this.soundVolume = volume
+        this.soundIntensity = intensity
+        
+        // Update granular sound settings
+        if (enabled) {
+            keyPressSounds = p.getBoolean("flutter.key_press_sounds", true)
+            longPressSounds = p.getBoolean("flutter.long_press_sounds", true)
+            repeatedActionSounds = p.getBoolean("flutter.repeated_action_sounds", true)
+        } else {
+            keyPressSounds = false
+            longPressSounds = false
+            repeatedActionSounds = false
+        }
+        
+        // Log only when settings actually change
+        Log.d(TAG, "🔊 Sound settings UPDATED: enabled=$enabled, volume=$volume (${soundVolumePercent}%), intensity=$intensity")
+        
+        // Configure sound manager with updated settings
+        configureSoundManager()
+        
+        return true
+    }
+    
+    /**
+     * Explicitly called when settings change from Flutter.
+     * Invalidates cache and forces reload of sound settings.
+     */
+    private fun onSettingsChanged() {
+        // Invalidate cache to force reload
+        cachedSoundEnabled = null
+        cachedSoundVolume = null
+        cachedSoundIntensity = null
+        
+        // Load settings (will now reload since cache is invalidated)
+        loadSoundSettingsIfNeeded()
+    }
+
     private fun configureSoundManager() {
+        // Avoid reapplying identical sound configuration on every layout refresh
+        val soundConfigSignature = listOf(
+            soundEnabled,
+            soundVolume,
+            soundIntensity,
+            selectedSoundProfile,
+            customSoundUri,
+            keyPressSounds,
+            longPressSounds,
+            repeatedActionSounds
+        ).joinToString("|")
+        if (soundConfigSignature == lastSoundConfigSignature) {
+            return
+        }
+        lastSoundConfigSignature = soundConfigSignature
+
         // ✅ CRITICAL: Always check for user's selected sound first before configuring
         val keyboardPrefs = getSharedPreferences("keyboard_prefs", Context.MODE_PRIVATE)
         val userSelectedSound = keyboardPrefs.getString("selected_sound", null)
@@ -2980,31 +2971,12 @@ class AIKeyboardService : InputMethodService(),
                 repeatedActionVibration = false
             }
             
-            // ✅ CRITICAL: Read sound volume ONLY from Flutter preferences (0-100 scale, convert to 0-1) - NO fallback
-            val soundVolumePercent = flutterPrefs.getInt("flutter.sound_volume", 50) // Default 50%
-            soundVolume = (soundVolumePercent / 100.0f).coerceIn(0f, 1f)
-            Log.d(TAG, "🔊 Loaded sound volume: ${soundVolumePercent}% (${soundVolume})")
-            soundIntensity = if (prefs.contains("sound_intensity")) {
-                val intensity = prefs.getInt("sound_intensity", 2)
-                // ✅ CRITICAL: If sound is enabled but intensity is 0, default to medium (2)
-                if (soundEnabled && intensity == 0) 2 else intensity
-            } else {
-                // ✅ CRITICAL: Default to medium (2) when sound is enabled, not 0
-                if (soundEnabled) 2 else 0
-            }.coerceIn(0, 3)
+            // ✅ FIX: Load sound settings only when they change (prevents log spam)
+            // Note: soundEnabled was already set from unified.soundEnabled above
+            // This will check Flutter preferences and update if changed
+            loadSoundSettingsIfNeeded()
+            
             visualIntensity = prefs.getInt("visual_intensity", visualIntensity)
-            
-            // ✅ CRITICAL: Initialize granular sound settings - ONLY from Flutter preferences, NO fallback
-            keyPressSounds = flutterPrefs.getBoolean("flutter.key_press_sounds", unified.soundEnabled)
-            longPressSounds = flutterPrefs.getBoolean("flutter.long_press_sounds", unified.soundEnabled)
-            repeatedActionSounds = flutterPrefs.getBoolean("flutter.repeated_action_sounds", unified.soundEnabled)
-            
-            // If main sound is disabled, disable all granular settings
-            if (!unified.soundEnabled) {
-                keyPressSounds = false
-                longPressSounds = false
-                repeatedActionSounds = false
-            }
             
             // ✅ FIX: Prioritize user's saved sound selection over default
             // Check keyboard_prefs first (set by setKeyboardSound method)
@@ -3668,10 +3640,7 @@ class AIKeyboardService : InputMethodService(),
             KEYCODE_NUMBERS -> cycleKeyboardMode()  // Also cycle
             -20 -> switchKeyboardMode(KeyboardMode.EXTENDED_SYMBOLS)  // =< key
             -21 -> switchKeyboardMode(KeyboardMode.DIALER)  // 123 key
-            KEYCODE_VOICE -> {
-                startVoiceInput()
-                ensureCursorStability()
-            }
+            KEYCODE_VOICE -> startVoiceInput()
             KEYCODE_GLOBE -> {
                 // Language switching - cycle through enabled languages
                 cycleLanguage()
@@ -3688,12 +3657,10 @@ class AIKeyboardService : InputMethodService(),
                     }
                 }
                 
-                ensureCursorStability()
             }
             KEYCODE_EMOJI -> {
                 // Enhanced emoji panel with visual feedback
                 switchKeyboardMode(KeyboardMode.EMOJI)
-                ensureCursorStability()
             }
             else -> handleCharacter(primaryCode, ic)
         }
@@ -6039,18 +6006,13 @@ class AIKeyboardService : InputMethodService(),
             return
         }
         if (!isSwipeAllowedForCurrentState()) {
-            Log.d(TAG, "Swipe ignored: not allowed in current state (mode=$currentKeyboardMode, lang=$currentLanguage)")
             return
         }
         
         // Skip if path is too short (accidental taps)
         if (swipePath.size < 2) {
-            Log.d(TAG, "Swipe path too short (${swipePath.size} points), treating as tap")
             return
         }
-        
-        Log.d(TAG, "🔍 Processing swipe with ${swipePath.size} coordinate points")
-        Log.d("AIKeyboardService", "🧭 onSwipeDetected: pts=${swipePath.size} first=${swipePath.firstOrNull()} last=${swipePath.lastOrNull()}")
         
         coroutineScope.launch {
             try {
@@ -6129,7 +6091,6 @@ class AIKeyboardService : InputMethodService(),
                     // Show alternatives in suggestion strip (take 3 or 4 based on settings)
                     updateSuggestionUI(finalCandidates.take(suggestionCount))
                         
-                    Log.d(TAG, "✅ Swipe decoded: path(${swipePath.size} points) → '${bestCandidate ?: ""}' (${finalCandidates.size} alternatives, ${processingTime}ms)")
                     if (!isConfident && !bestCandidate.isNullOrBlank()) {
                         Log.w(TAG, "⚠️ Low-confidence swipe: word='$bestCandidate' conf=${String.format(Locale.US, "%.2f", topConfidence)} gap=${String.format(Locale.US, "%.2f", topConfidence - secondConfidence)}")
                     }
@@ -7379,19 +7340,30 @@ class AIKeyboardService : InputMethodService(),
      * Update visual state based on new caps/shift state
      */
     private fun updateShiftVisualState(newState: Int) {
-        // Update legacy keyboard view (if used)
+        val isUpperCase = newState != CapsShiftManager.STATE_NORMAL
+        val isCapsLock = newState == CapsShiftManager.STATE_CAPS_LOCK
+        
+        // Update legacy keyboard view (if used) with lightweight path to avoid rebuilds
         keyboardView?.let { view ->
-            view.isShifted = (newState != CapsShiftManager.STATE_NORMAL)
-            view.invalidateAllKeys()
+            if (view is SwipeKeyboardView) {
+                if (view.applyShiftState(isUpperCase, isCapsLock)) {
+                    lastLegacyShiftVisualState = newState
+                }
+            } else if (newState != lastLegacyShiftVisualState) {
+                view.isShifted = isUpperCase
+                view.invalidateAllKeys()
+                lastLegacyShiftVisualState = newState
+            }
         }
         
         // ✅ Update UnifiedKeyboardView with new shift state
-        KeyboardStateManager.updateShiftState(
-            newState != CapsShiftManager.STATE_NORMAL,
-            newState == CapsShiftManager.STATE_CAPS_LOCK
-        )
+        KeyboardStateManager.updateShiftState(isUpperCase, isCapsLock)
 
-        if (::unifiedController.isInitialized) {
+        val unifiedViewActive = ::unifiedController.isInitialized &&
+            unifiedKeyboardView?.isAttachedToWindow == true &&
+            keyboardView !is SwipeKeyboardView
+
+        if (unifiedViewActive) {
             unifiedController.refreshKeyboardForShiftState(newState)
         }
     }
@@ -7513,7 +7485,6 @@ class AIKeyboardService : InputMethodService(),
 
     fun startVoiceInputFromToolbar() {
         startVoiceInput()
-        ensureCursorStability()
     }
 
     private fun stopVoiceInput() {
@@ -7641,23 +7612,10 @@ class AIKeyboardService : InputMethodService(),
             Log.e(TAG, "❌ Error committing voice input: ${e.message}", e)
             return false
         } finally {
-            // Update UI state after commit attempt - move heavy work off main thread
-            try {
-                CoroutineScope(Dispatchers.Default).launch {
-                    // Heavy work on background thread
-                    delay(50) // Small delay to let InputConnection stabilize
-                    
-                    // UI updates on main thread
-                    withContext(Dispatchers.Main) {
-                        ensureCursorStability()
-                        // Update suggestions on background thread to avoid blocking UI
-                        CoroutineScope(Dispatchers.Default).launch {
-                            updateAISuggestions()
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error updating UI after voice commit", e)
+            // Refresh suggestions after voice commit once the connection settles
+            CoroutineScope(Dispatchers.Default).launch {
+                delay(50)
+                updateAISuggestions()
             }
         }
     }
@@ -7808,29 +7766,6 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Enhanced cursor stability - prevent cursor movement on special key presses
-     */
-    private fun ensureCursorStability() {
-        try {
-            // This method can be called after special key operations
-            // to ensure cursor position remains stable during state changes
-            currentInputConnection?.let { ic ->
-                // Store current cursor position before any state changes
-                val beforeCursor = ic.getTextBeforeCursor(1000, 0)?.length ?: 0
-                val afterCursor = ic.getTextAfterCursor(1000, 0)?.length ?: 0
-                
-                // The cursor position is naturally maintained by Android's InputConnection
-                // when we don't call setSelection() or other cursor-moving methods
-                // This method serves as a checkpoint to ensure no unintended cursor movement
-                
-                Log.d(TAG, "Cursor stability maintained at position: $beforeCursor")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error maintaining cursor stability", e)
-        }
-    }
-    
-    /**
      * Enhanced emoji insertion with proper cursor positioning
      */
     private fun insertEmojiWithCursor(emoji: String) {
@@ -7879,14 +7814,6 @@ class AIKeyboardService : InputMethodService(),
         } catch (e: Exception) {
             Log.e(TAG, "Error replacing text with result", e)
         }
-    }
-    
-    /**
-     * Update AI panels with new custom prompt information
-     * Called when AI_PROMPT_UPDATED or SETTINGS_CHANGED broadcast is received
-     */
-    private fun updateAIPanelsWithNewPrompt() {
-        // Custom prompt functionality removed
     }
     
     /**
@@ -8823,6 +8750,44 @@ class AIKeyboardService : InputMethodService(),
      * 
      * @param lang Language code to activate (e.g., "en", "hi")
      */
+    private suspend fun applyLanguageResources(
+        lang: String,
+        resources: LanguageResources,
+        updateCurrentLanguage: Boolean
+    ) {
+        autocorrectEngine.setLanguage(lang, resources)
+
+        var isReady = autocorrectEngine.hasLanguage(lang)
+        var readinessAttempts = 0
+        val maxReadinessAttempts = 3
+        while (!isReady && readinessAttempts < maxReadinessAttempts) {
+            readinessAttempts++
+            Log.w(TAG, "⏳ Engine readiness check failed, retrying... $readinessAttempts/$maxReadinessAttempts")
+            delay(200)
+            isReady = autocorrectEngine.hasLanguage(lang)
+        }
+
+        if (!isReady) {
+            throw IllegalStateException("Engine not ready after activation for $lang")
+        }
+
+        if (updateCurrentLanguage) {
+            currentLanguage = lang
+        }
+
+        if (updateCurrentLanguage || lang == currentLanguage) {
+            withContext(Dispatchers.Main) {
+                if (currentKeyboardMode == KeyboardMode.LETTERS) {
+                    loadLanguageLayout(lang)
+                }
+                languageSwitchView?.refreshDisplay()
+                currentWord = ""
+                updateAISuggestions()
+                refreshSwipeCapability("languageActivated=$lang")
+            }
+        }
+    }
+
     // Thread-safe activation tracking to prevent duplicate calls
     private val activatingLanguages = mutableSetOf<String>()
     
@@ -8866,49 +8831,9 @@ class AIKeyboardService : InputMethodService(),
             }
             
             if (resources != null) {
-                // Step 4: Set language in unified engine
-                autocorrectEngine.setLanguage(lang, resources)
-                
-                // Step 5: Double-verify engine readiness with retry
-                var isReady = false
-                var readinessAttempts = 0
-                val maxReadinessAttempts = 3
-                
-                while (!isReady && readinessAttempts < maxReadinessAttempts) {
-                    isReady = autocorrectEngine.hasLanguage(lang)
-                    if (!isReady) {
-                        readinessAttempts++
-                        Log.w(TAG, "⏳ Engine readiness check failed, retrying... $readinessAttempts/$maxReadinessAttempts")
-                        delay(200)
-                    }
-                }
-                
-                if (isReady) {
-                    Log.d(TAG, "✅ Activated Firebase language: $lang words=${resources.words.size}")
-                    
-                    // Step 6: Update current language tracking
-                    currentLanguage = lang
-                    
-                    // Step 7: Update dependent components on main thread
-                    withContext(Dispatchers.Main) {
-                        // Update keyboard layout if in letters mode
-                        if (currentKeyboardMode == KeyboardMode.LETTERS) {
-                            loadLanguageLayout(lang)
-                        }
-                        
-                        // Update language switch view
-                        languageSwitchView?.refreshDisplay()
-                        
-                        // Clear current input and refresh suggestions
-                        currentWord = ""
-                        updateAISuggestions()
-                    }
-                    
-                    Log.d(TAG, "🔁 Language switched to $lang (Firebase data)")
-                } else {
-                    Log.e(TAG, "❌ Engine readiness check failed for $lang after $maxReadinessAttempts attempts")
-                    throw IllegalStateException("Engine not ready after activation for $lang")
-                }
+                // Step 4: Apply language resources once and update UI
+                applyLanguageResources(lang, resources, updateCurrentLanguage = true)
+                Log.d(TAG, "🔁 Language switched to $lang (Firebase data)")
             } else {
                 Log.e(TAG, "❌ Failed to get Firebase resources for language: $lang after $maxAttempts attempts")
                 throw IllegalStateException("Failed to load Firebase resources for $lang")
@@ -8968,29 +8893,14 @@ class AIKeyboardService : InputMethodService(),
             // Get the loaded resources from MultilingualDictionary
             val resources = multilingualDictionary.get(lang)
             if (resources != null) {
-                // Set language in unified engine
-                autocorrectEngine.setLanguage(lang, resources)
-                LogUtil.d(TAG, "✅ UnifiedAutocorrectEngine activated for $lang: words=${resources.words.size}")
-                
-                // If this is the current language, update UI
-                if (lang == currentLanguage) {
-                    withContext(Dispatchers.Main) {
-                        // Update keyboard layout if in letters mode
-                        if (currentKeyboardMode == KeyboardMode.LETTERS) {
-                            loadLanguageLayout(lang)
-                        }
-                        
-                        // Update language switch view
-                        languageSwitchView?.refreshDisplay()
-                        
-                        // Refresh suggestions
-                        updateAISuggestions()
-
-                        refreshSwipeCapability("languageActivated=$lang")
-                        
-                        LogUtil.d(TAG, "✅ UI updated for activated language: $lang")
-                    }
+                if (autocorrectEngine.hasLanguage(lang)) {
+                    LogUtil.d(TAG, "⏭️ Language $lang already active; skipping duplicate activation")
+                    return
                 }
+
+                // Set language in unified engine
+                applyLanguageResources(lang, resources, updateCurrentLanguage = false)
+                LogUtil.d(TAG, "✅ UnifiedAutocorrectEngine activated for $lang: words=${resources.words.size}")
                 
                 LogUtil.d(TAG, "✅ Language $lang fully activated and ready for suggestions")
                 

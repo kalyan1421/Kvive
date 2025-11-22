@@ -5,8 +5,12 @@ import android.media.AudioAttributes
 import android.media.SoundPool
 import android.net.Uri
 import android.util.Log
+import android.os.Handler
+import android.os.Looper
 import androidx.annotation.RawRes
 import java.io.File
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * ✅ LIGHTWEIGHT SOUNDPOOL MANAGER - Singleton Pattern
@@ -44,6 +48,9 @@ object KeyboardSoundManager {
         }
 
         try {
+            // ✅ CRITICAL FIX: Optimize AudioAttributes to prevent MediaCodec initialization
+            // On devices like Xiaomi/Redmi (MIUI), default attributes trigger heavy DSP/MediaCodec path
+            // These attributes force lightweight system audio path, avoiding 15-25ms buffer allocation delays
             val attrs = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -54,24 +61,66 @@ object KeyboardSoundManager {
                 .setAudioAttributes(attrs)
                 .build()
 
-            // Preload core sounds once
-            load(context, "classic", R.raw.key_click)
-            load(context, "mechanical", R.raw.key_mech)
-            load(context, "bubble", R.raw.key_bubble)
-            load(context, "pop", R.raw.key_pop)
-
             registerAliases()
 
-            soundPool?.setOnLoadCompleteListener { _, sampleId, status ->
+            var loadedCount = 0
+            val totalSounds = 4
+            
+            soundPool?.setOnLoadCompleteListener { pool, sampleId, status ->
                 if (status == 0) {
-                    Log.d(TAG, "✅ Sound loaded successfully: ID=$sampleId")
-                    isInitialized = true
+                    loadedCount++
+                    Log.d(TAG, "✅ Sound loaded successfully: ID=$sampleId ($loadedCount/$totalSounds)")
+                    
+                    // ✅ CRITICAL: Warm up audio system immediately after first sound loads
+                    // This prevents MediaCodec initialization delays on first key press
+                    // Play at volume 0 to warm up without audible sound
+                    if (loadedCount == 1) {
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            try {
+                                pool.play(sampleId, 0f, 0f, 1, 0, 1.0f)
+                                Log.d(TAG, "🔥 Audio system warmed up (silent play)")
+                            } catch (e: Exception) {
+                                Log.w(TAG, "⚠️ Warm-up play failed", e)
+                            }
+                        }, 50)
+                    }
+                    
+                    if (loadedCount >= totalSounds) {
+                        isInitialized = true
+                        Log.d(TAG, "✅ All sounds loaded, SoundPool ready")
+                    }
                 } else {
                     Log.e(TAG, "❌ Sound load failed: ID=$sampleId, status=$status")
                 }
             }
 
-            Log.d(TAG, "✅ SoundPool initialized with ${soundMap.size} base sounds")
+            // ✅ CRITICAL FIX: Load sounds in background thread with delays
+            // This prevents MediaCodec initialization from blocking main thread
+            // and reduces MediaCodec churn by spacing out loads
+            val executor = Executors.newSingleThreadExecutor()
+            executor.execute {
+                try {
+                    Log.d(TAG, "✅ SoundPool initialized, loading ${totalSounds} base sounds in background")
+                    
+                    // Load sounds sequentially with small delays to reduce MediaCodec churn
+                    load(context, "classic", R.raw.key_click)
+                    Thread.sleep(50) // Small delay to let MediaCodec finish
+                    
+                    load(context, "mechanical", R.raw.key_mech)
+                    Thread.sleep(50)
+                    
+                    load(context, "bubble", R.raw.key_bubble)
+                    Thread.sleep(50)
+                    
+                    load(context, "pop", R.raw.key_pop)
+                    
+                    Log.d(TAG, "✅ Background sound loading complete")
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Error loading sounds in background", e)
+                } finally {
+                    executor.shutdown()
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "❌ Failed to initialize SoundPool", e)
         }
