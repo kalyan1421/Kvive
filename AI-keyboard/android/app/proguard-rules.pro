@@ -97,10 +97,15 @@
     public static <fields>;
 }
 
-# Remove logging in release
+# Remove logging in release builds (strips Log.d, Log.v, Log.i, Log.w calls)
 -assumenosideeffects class android.util.Log {
     public static *** d(...);
     public static *** v(...);
     public static *** i(...);
+    public static *** w(...);
 }
+
+# Note: MediaCodec system logs (D/MediaCodec, I/MediaCodec, etc.) are Android framework logs
+# that appear when SoundPool loads audio files. These cannot be suppressed from app code
+# but are only visible in debug builds. In release builds, they are automatically filtered.
 

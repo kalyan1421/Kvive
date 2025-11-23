@@ -3,8 +3,6 @@ package com.kvive.keyboard
 import android.content.Context
 import android.util.Log
 import com.kvive.keyboard.utils.LogUtil
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -16,16 +14,13 @@ import org.json.JSONObject
 import java.io.File
 
 /**
- * Phase 2: Multi-Language Cloud Sync Support
- * - Sync per-language dictionaries to Firestore
- * - Merge cloud + local data without overwriting
+ * Phase 2: Multi-Language Local Sync Support (offline)
+ * - Persist per-language dictionaries locally
+ * - Merge local data without overwriting
  * - Support language-specific shortcuts and learned words
  */
 class UserDictionaryManager(private val context: Context) {
     private val TAG = "UserDictionaryManager"
-    private val firestore = FirebaseFirestore.getInstance()
-    private val auth = FirebaseAuth.getInstance()
-    private val userId get() = auth.currentUser?.uid ?: "anonymous"
 
     // Multi-language support
     private val userWordsDir = File(context.filesDir, "user_words").apply {
@@ -175,23 +170,7 @@ class UserDictionaryManager(private val context: Context) {
      * @param language Language code (defaults to current language)
      */
     fun syncToCloud(language: String = currentLanguage) {
-        if (userId == "anonymous") {
-            LogUtil.w(TAG, "⚠️ Skipping cloud sync (user not logged in)")
-            return
-        }
-        
-        val data = localMap.entries.map { mapOf("word" to it.key, "count" to it.value) }
-        firestore.collection("users")
-            .document(userId)
-            .collection("dictionary")
-            .document(language)
-            .set(mapOf("entries" to data, "lastModified" to System.currentTimeMillis()))
-            .addOnSuccessListener {
-                LogUtil.i(TAG, "☁️ Synced ${localMap.size} words to cloud for $language")
-            }
-            .addOnFailureListener {
-                LogUtil.e(TAG, "❌ Failed cloud sync for $language: ${it.message}")
-            }
+        LogUtil.d(TAG, "☁️ Cloud sync disabled (offline mode) for $language")
     }
 
     /**
@@ -200,124 +179,27 @@ class UserDictionaryManager(private val context: Context) {
      * @param language Language code (defaults to current language)
      */
     fun syncFromCloud(language: String = currentLanguage) {
-        if (userId == "anonymous") {
-            LogUtil.w(TAG, "⚠️ Skipping cloud pull (user not logged in)")
-            return
-        }
-        
-        firestore.collection("users")
-            .document(userId)
-            .collection("dictionary")
-            .document(language)
-            .get()
-            .addOnSuccessListener { doc ->
-                if (!doc.exists()) {
-                    LogUtil.i(TAG, "No cloud dictionary found for $language")
-                    return@addOnSuccessListener
-                }
-                
-                val entries = (doc.get("entries") as? List<Map<String, Any>>) ?: return@addOnSuccessListener
-                var merged = 0
-                
-                for (e in entries) {
-                    val w = e["word"] as? String ?: continue
-                    val c = (e["count"] as? Long)?.toInt() ?: 1
-                    
-                    // Merge by summing frequencies (Phase 4: merge logic)
-                    val currentCount = localMap[w] ?: 0
-                    localMap[w] = currentCount + c
-                    merged++
-                }
-                
-                saveLocalCache()
-                LogUtil.i(TAG, "🔄 Merged $merged cloud words for $language")
-            }
-            .addOnFailureListener {
-                LogUtil.w(TAG, "⚠️ Failed to pull cloud dictionary for $language: ${it.message}")
-            }
+        LogUtil.d(TAG, "☁️ Cloud pull disabled (offline mode) for $language")
     }
     
     /**
-     * Sync custom shortcuts to Firebase (per language)
+     * Sync custom shortcuts (per language) – offline stub
      * Called from DictionaryManager integration
      * @param shortcuts Map of shortcut -> expansion
      * @param language Language code (defaults to current language)
      */
     fun syncShortcutsToCloud(shortcuts: Map<String, String>, language: String = currentLanguage) {
-        if (userId == "anonymous") {
-            Log.w(TAG, "Cannot sync shortcuts - user not authenticated")
-            return
-        }
-        
-        try {
-            val data = shortcuts.entries.map { 
-                mapOf("shortcut" to it.key, "expansion" to it.value) 
-            }
-            
-            firestore.collection("users")
-                .document(userId)
-                .collection("shortcuts")
-                .document(language)
-                .set(mapOf(
-                    "shortcuts" to data,
-                    "lastModified" to System.currentTimeMillis()
-                ))
-                .addOnSuccessListener {
-                    Log.d(TAG, "☁️ Synced ${shortcuts.size} shortcuts for $language")
-                }
-                .addOnFailureListener { e ->
-                    Log.e(TAG, "❌ Failed to sync shortcuts for $language", e)
-                }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error syncing shortcuts to cloud", e)
-        }
+        Log.d(TAG, "☁️ Shortcut cloud sync disabled (offline mode) for $language")
     }
     
     /**
-     * Load custom shortcuts from Firebase (per language)
+     * Load custom shortcuts (per language) – offline stub
      * Returns map of shortcut -> expansion
      * @param language Language code (defaults to current language)
      */
     fun loadShortcutsFromCloud(language: String = currentLanguage, callback: (Map<String, String>) -> Unit) {
-        if (userId == "anonymous") {
-            Log.w(TAG, "Cannot load shortcuts - user not authenticated")
-            callback(emptyMap())
-            return
-        }
-        
-        try {
-            firestore.collection("users")
-                .document(userId)
-                .collection("shortcuts")
-                .document(language)
-                .get()
-                .addOnSuccessListener { document ->
-                    if (document.exists()) {
-                        val shortcuts = mutableMapOf<String, String>()
-                        @Suppress("UNCHECKED_CAST")
-                        val data = document.get("shortcuts") as? List<Map<String, String>>
-                        data?.forEach { entry ->
-                            val shortcut = entry["shortcut"]
-                            val expansion = entry["expansion"]
-                            if (shortcut != null && expansion != null) {
-                                shortcuts[shortcut] = expansion
-                            }
-                        }
-                        Log.d(TAG, "✅ Loaded ${shortcuts.size} shortcuts from cloud for $language")
-                        callback(shortcuts)
-                    } else {
-                        Log.d(TAG, "No shortcuts found in cloud for $language")
-                        callback(emptyMap())
-                    }
-                }
-                .addOnFailureListener { e ->
-                    Log.e(TAG, "❌ Failed to load shortcuts for $language", e)
-                    callback(emptyMap())
-                }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading shortcuts from cloud", e)
-            callback(emptyMap())
-        }
+        Log.d(TAG, "☁️ Shortcut cloud load disabled (offline mode) for $language")
+        callback(emptyMap())
     }
     
     /**
@@ -397,18 +279,7 @@ class UserDictionaryManager(private val context: Context) {
         localMap.clear()
         saveLocalCache()
         
-        // Also clear from Firestore
-        firestore.collection("users")
-            .document(userId)
-            .collection("user_dictionary")
-            .document("words")
-            .delete()
-            .addOnSuccessListener {
-                LogUtil.i(TAG, "🗑️ Cleared all user words from cloud")
-            }
-            .addOnFailureListener {
-                LogUtil.w(TAG, "⚠️ Failed to clear cloud words: ${it.message}")
-            }
+        LogUtil.i(TAG, "🗑️ Cloud clear skipped (offline mode)")
     }
 
     /** 

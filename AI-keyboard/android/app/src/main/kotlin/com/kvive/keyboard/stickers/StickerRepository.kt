@@ -2,14 +2,9 @@ package com.kvive.keyboard.stickers
 
 import android.content.Context
 import android.util.Log
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.storage.FirebaseStorage
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.tasks.await
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
-import java.net.URLEncoder
 import kotlin.text.Charsets
 
 /**
@@ -34,10 +29,7 @@ class StickerRepository(private val context: Context) {
         private const val STICKERS_FOLDER = "stickers"
     }
 
-    private val firestore = FirebaseFirestore.getInstance()
-    private val storage = FirebaseStorage.getInstance()
     private val cacheDir = File(context.filesDir, CACHE_DIR_NAME)
-    private val storageBucket: String? get() = storage.app.options.storageBucket
 
     init {
         if (!cacheDir.exists()) {
@@ -47,47 +39,13 @@ class StickerRepository(private val context: Context) {
     }
 
     private suspend fun fetchPacksFromStorage(): List<StickerPack> {
-        val bucket = storageBucket
-        if (bucket.isNullOrEmpty()) {
-            Log.e(TAG, "Storage bucket is null or empty! Cannot fetch packs.")
-            return emptyList()
-        }
-        Log.d(TAG, "Fetching packs from storage bucket: $bucket")
-        val listResult = storage.reference.child(STICKERS_FOLDER).listAll().await()
-        val packs = mutableListOf<StickerPack>()
-
-        listResult.prefixes.forEach { prefix ->
-            val packId = prefix.name
-            Log.d(TAG, "Processing pack: $packId")
-            val manifest = ensureManifest(packId, bucket, forceDownload = true)
-            if (manifest != null) {
-                val (pack, stickers) = manifest
-                Log.d(TAG, "✅ Manifest for $packId loaded (${stickers.size} stickers)")
-                packs.add(pack)
-                saveStickersToCache(packId, stickers)
-            } else {
-                Log.w(TAG, "Manifest missing for pack $packId")
-            }
-        }
-
-        return packs.sortedBy { it.name.lowercase() }
+        Log.d(TAG, "Offline mode: skipping Firebase Storage fetch")
+        return emptyList()
     }
 
     private suspend fun fetchPacksFromFirestore(): List<StickerPack> {
-        return try {
-            val snapshot = firestore.collection(COLLECTION_STICKER_PACKS).get().await()
-            snapshot.documents.mapNotNull { doc ->
-                try {
-                    StickerPack.fromFirestore(doc)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error parsing pack ${doc.id} from Firestore", e)
-                    null
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to fetch packs from Firestore", e)
-            emptyList()
-        }
+        Log.d(TAG, "Offline mode: skipping Firestore fetch")
+        return emptyList()
     }
 
     // -----------------------------------------------------
@@ -97,25 +55,20 @@ class StickerRepository(private val context: Context) {
         val cached = if (!forceRefresh) loadPacksFromCache() else null
         if (!forceRefresh && !cached.isNullOrEmpty()) {
             Log.d(TAG, "Serving ${cached.size} sticker packs from cache")
-            syncPacksInBackground()
             return cached
         }
 
-        return try {
-            val packs = fetchPacksFromStorage()
+        val packs = fetchPacksFromStorage()
+        if (packs.isNotEmpty()) {
             savePacksToCache(packs)
-            packs
-        } catch (storageError: Exception) {
-            Log.e(TAG, "Failed to load sticker packs from Firebase Storage, falling back to Firestore", storageError)
-            if (!cached.isNullOrEmpty()) {
-                return cached
-            }
-            val firestorePacks = fetchPacksFromFirestore()
-            if (firestorePacks.isNotEmpty()) {
-                savePacksToCache(firestorePacks)
-            }
-            firestorePacks
+            return packs
         }
+        val firestorePacks = fetchPacksFromFirestore()
+        if (firestorePacks.isNotEmpty()) {
+            savePacksToCache(firestorePacks)
+            return firestorePacks
+        }
+        return cached ?: emptyList()
     }
 
     // -----------------------------------------------------
@@ -131,42 +84,8 @@ class StickerRepository(private val context: Context) {
             }
         }
 
-        val bucket = storageBucket
-        if (bucket.isNullOrEmpty()) {
-            Log.e(TAG, "Storage bucket is null or empty! Cannot fetch stickers for pack $packId")
-            return loadStickersFromCache(packId) ?: emptyList()
-        }
-        val manifest = ensureManifest(packId, bucket, forceDownload = forceRefresh)
-        if (manifest != null) {
-            val (pack, stickers) = manifest
-            saveStickersToCache(packId, stickers)
-            Log.d(TAG, "Loaded ${stickers.size} stickers from manifest for pack ${pack.id}")
-            return stickers
-        }
-
-        // Final fallback to Firestore
-        return try {
-            val snapshot = firestore.collection(COLLECTION_STICKER_PACKS)
-                .document(packId)
-                .collection(COLLECTION_STICKERS)
-                .get()
-                .await()
-
-            val stickers = snapshot.documents.mapNotNull { doc ->
-                try {
-                    StickerData.fromFirestore(doc, packId)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error parsing sticker ${doc.id} from Firestore", e)
-                    null
-                }
-            }
-
-            saveStickersToCache(packId, stickers)
-            stickers
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to fetch stickers for $packId via Firestore fallback", e)
-            loadStickersFromCache(packId) ?: emptyList()
-        }
+        // Offline mode: serve cached stickers only
+        return loadStickersFromCache(packId) ?: emptyList()
     }
 
     // -----------------------------------------------------
@@ -182,31 +101,8 @@ class StickerRepository(private val context: Context) {
             return file.absolutePath
         }
 
-        return try {
-            when {
-                sticker.storagePath != null -> {
-                    val ref = storage.reference.child(sticker.storagePath)
-                    ref.getFile(file).await()
-                }
-                sticker.imageUrl.startsWith("gs://") || sticker.imageUrl.contains("firebasestorage") -> {
-                    val ref = storage.getReferenceFromUrl(sticker.imageUrl)
-                    ref.getFile(file).await()
-                }
-                sticker.imageUrl.startsWith("http") -> {
-                    downloadFromUrl(sticker.imageUrl, file)
-                }
-                else -> {
-                    Log.e(TAG, "Unsupported URL format for sticker ${sticker.id}: ${sticker.imageUrl}")
-                    return null
-                }
-            }
-
-            Log.d(TAG, "Successfully downloaded sticker ${sticker.id}")
-            file.absolutePath
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to download sticker ${sticker.id}: ${sticker.imageUrl}", e)
-            null
-        }
+        Log.d(TAG, "Offline mode: skipping sticker download for ${sticker.id}")
+        return null
     }
 
     // -----------------------------------------------------
@@ -256,17 +152,7 @@ class StickerRepository(private val context: Context) {
     // 6️⃣ Private helper methods
     // -----------------------------------------------------
     private fun syncPacksInBackground() {
-        // Launch background sync - in a real implementation, 
-        // you'd use a coroutine scope tied to application lifecycle
-        Thread {
-            try {
-                val packs = runBlocking { fetchPacksFromStorage() }
-                savePacksToCache(packs)
-                Log.d(TAG, "Background sync completed for ${packs.size} packs")
-            } catch (e: Exception) {
-                Log.e(TAG, "Background sync failed", e)
-            }
-        }.start()
+        // Offline mode: background sync disabled
     }
 
     private fun savePacksToCache(packs: List<StickerPack>) {
@@ -322,62 +208,39 @@ class StickerRepository(private val context: Context) {
 
     private suspend fun ensureManifest(
         packId: String,
-        bucket: String,
         forceDownload: Boolean
     ): Pair<StickerPack, List<StickerData>>? {
         val manifestFile = File(cacheDir, "$packId$MANIFEST_SUFFIX")
         if (!forceDownload && manifestFile.exists()) {
-            parseManifestFile(manifestFile, packId, bucket)?.let { return it }
+            parseManifestFile(manifestFile, packId)?.let { return it }
         }
-
-        return try {
-            val ref = storage.reference.child("$STICKERS_FOLDER/$packId/$MANIFEST_FILE_NAME")
-            val tempFile = File(cacheDir, "${packId}_manifest.tmp")
-            ref.getFile(tempFile).await()
-            tempFile.copyTo(manifestFile, overwrite = true)
-            tempFile.delete()
-            parseManifestFile(manifestFile, packId, bucket)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to download manifest for $packId", e)
-            if (manifestFile.exists()) {
-                parseManifestFile(manifestFile, packId, bucket)
-            } else {
-                null
-            }
-        }
+        Log.d(TAG, "Offline mode: manifest download skipped for $packId")
+        return null
     }
 
     private fun parseManifestFile(
         manifestFile: File,
-        packId: String,
-        bucket: String
+        packId: String
     ): Pair<StickerPack, List<StickerData>>? {
         return try {
             val manifestContent = manifestFile.readText()
-            Log.d(TAG, "Parsing manifest for pack $packId, bucket: $bucket")
+            Log.d(TAG, "Parsing manifest for pack $packId")
             Log.d(TAG, "Manifest content: $manifestContent")
             
             val json = JSONObject(manifestContent)
             val stickersArray = json.optJSONArray("stickers") ?: JSONArray()
             Log.d(TAG, "Found ${stickersArray.length()} stickers in manifest array")
             
-            if (bucket.isNullOrEmpty()) {
-                Log.e(TAG, "Bucket is null or empty! Cannot build download URLs for pack $packId")
-                return null
-            }
-            
             val basePath = "$STICKERS_FOLDER/$packId"
             val thumbnailFile = json.optString("thumbnail").takeIf { it.isNotEmpty() }
             val thumbnailPath = thumbnailFile?.let { "$basePath/$it" }
-            val thumbnailUrl = thumbnailPath?.let { buildDownloadUrl(bucket, it) }
-                ?.takeIf { it.isNotEmpty() }
-                ?: json.optString("thumbnailUrl", "")
+            val thumbnailUrl = json.optString("thumbnailUrl", thumbnailPath ?: "")
 
             val pack = StickerPack.fromManifest(
                 packId = packId,
                 manifest = json,
                 thumbnailUrl = thumbnailUrl,
-                storagePath = basePath
+                storagePath = null
             )
 
             val stickers = mutableListOf<StickerData>()
@@ -393,23 +256,16 @@ class StickerRepository(private val context: Context) {
                     }
                     
                     val storagePath = "$basePath/$fileName"
-                    val imageUrl = buildDownloadUrl(bucket, storagePath)
-                    
-                    Log.d(TAG, "Built URL for $fileName: $imageUrl")
-                    
-                    if (imageUrl.isNotEmpty()) {
-                        stickers.add(
-                            StickerData.fromManifest(
-                                packId = packId,
-                                stickerObj = stickerObj,
-                                imageUrl = imageUrl,
-                                storagePath = storagePath
-                            )
+                    val imageUrl = stickerObj.optString("url", storagePath)
+                    stickers.add(
+                        StickerData.fromManifest(
+                            packId = packId,
+                            stickerObj = stickerObj,
+                            imageUrl = imageUrl,
+                            storagePath = null
                         )
-                        Log.d(TAG, "✅ Added sticker: $fileName")
-                    } else {
-                        Log.w(TAG, "Failed to build URL for sticker $fileName, skipping")
-                    }
+                    )
+                    Log.d(TAG, "✅ Added sticker: $fileName")
                 } catch (e: Exception) {
                     Log.e(TAG, "Error processing sticker $i in pack $packId", e)
                 }
@@ -422,18 +278,6 @@ class StickerRepository(private val context: Context) {
             e.printStackTrace()
             null
         }
-    }
-
-    private fun buildDownloadUrl(bucket: String?, relativePath: String?): String {
-        if (bucket.isNullOrEmpty() || relativePath.isNullOrEmpty()) {
-            Log.w(TAG, "buildDownloadUrl: bucket or path is empty. bucket='$bucket', path='$relativePath'")
-            return ""
-        }
-        val cleanPath = relativePath.trimStart('/')
-        val encoded = cleanPath.split("/").joinToString("/") { segment ->
-            URLEncoder.encode(segment, Charsets.UTF_8.name())
-        }
-        return "https://firebasestorage.googleapis.com/v0/b/$bucket/o/$encoded?alt=media"
     }
 
     private fun loadPacksFromCache(): List<StickerPack>? {

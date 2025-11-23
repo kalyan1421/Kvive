@@ -92,7 +92,14 @@ class ThemeManager(context: Context) : BaseManager(context) {
      * Migrates old themes to V2 format automatically
      */
     private fun loadThemeFromPrefs() {
-        val themeJson = prefs.getString(THEME_V2_KEY, null)
+        // Always read a fresh snapshot; Flutter writes from another process (:app → :ime)
+        val prefsSnapshot = try {
+            context.getSharedPreferences(getPreferencesName(), Context.MODE_MULTI_PROCESS)
+        } catch (_: Exception) {
+            prefs
+        }
+        val themeJson = prefsSnapshot.getString(THEME_V2_KEY, null)
+        var changed = false
         
         if (themeJson != null) {
             // Load V2 theme
@@ -113,17 +120,22 @@ class ThemeManager(context: Context) : BaseManager(context) {
                 // Clear caches on theme change
                 drawableCache.evictAll()
                 imageCache.evictAll()
+                changed = true
             }
         } else {
             // Check for old theme format and migrate
-            migrateOldTheme()
+            changed = migrateOldTheme()
+        }
+
+        if (changed) {
+            notifyThemeChanged()
         }
     }
     
     /**
      * Migrate old theme data to V2 format
      */
-    private fun migrateOldTheme() {
+    private fun migrateOldTheme(): Boolean {
         // Check for old theme keys
         val oldThemeData = prefs.getString("flutter.current_theme_data", null)
         
@@ -138,12 +150,16 @@ class ThemeManager(context: Context) : BaseManager(context) {
                     .remove("flutter.current_theme_data")
                     .remove("flutter.current_theme_id")
                     .apply()
-        } catch (e: Exception) {
+                return true
+            } catch (e: Exception) {
                 loadDefaultTheme()
+                return true
             }
-            } else {
+        } else {
             loadDefaultTheme()
+            return true
         }
+        return false
     }
     
     private fun createMigratedTheme(oldTheme: JSONObject): KeyboardThemeV2 {

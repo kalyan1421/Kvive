@@ -194,7 +194,7 @@ void main() async {
   }
 
   // Initialize the advanced feedback system
-  KeyboardFeedbackSystem.initialize();
+  // KeyboardFeedbackSystem.initialize();
   
   // Ensure saved keyboard settings are applied before the user interacts again
   await KeyboardSettingsBootstrapper.ensureBootstrapped();

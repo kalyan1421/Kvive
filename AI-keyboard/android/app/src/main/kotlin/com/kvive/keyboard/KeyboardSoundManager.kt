@@ -4,13 +4,10 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.SoundPool
 import android.net.Uri
-import android.util.Log
-import android.os.Handler
-import android.os.Looper
 import androidx.annotation.RawRes
+import com.kvive.keyboard.utils.LogUtil
 import java.io.File
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 
 /**
  * ✅ LIGHTWEIGHT SOUNDPOOL MANAGER - Singleton Pattern
@@ -37,13 +34,18 @@ object KeyboardSoundManager {
     private var isInitialized = false
     private var customSoundId: Int? = null
     private var currentCustomUri: String? = null
+    private var lastConfigSignature: Triple<String?, Float, String?>? = null
 
     /**
      * Initialize SoundPool and preload built-in sound profiles.
      */
-    fun init(context: Context) {
+    fun init(
+        context: Context,
+        initialProfile: String = "default",
+        initialCustomUri: String? = null
+    ) {
         if (soundPool != null) {
-            Log.d(TAG, "SoundPool already initialized, skipping")
+            LogUtil.d(TAG, "SoundPool already initialized, skipping")
             return
         }
 
@@ -54,6 +56,7 @@ object KeyboardSoundManager {
             val attrs = AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                .setFlags(AudioAttributes.FLAG_LOW_LATENCY)
                 .build()
 
             soundPool = SoundPool.Builder()
@@ -63,34 +66,30 @@ object KeyboardSoundManager {
 
             registerAliases()
 
+            // Set initial profile before loading sounds to avoid wrong profile warmup
+            currentType = initialProfile
+            currentCustomUri = initialCustomUri
+            if (initialProfile.lowercase() == "custom" && !initialCustomUri.isNullOrBlank()) {
+                loadCustom(context, initialCustomUri)
+            }
+
             var loadedCount = 0
             val totalSounds = 4
             
-            soundPool?.setOnLoadCompleteListener { pool, sampleId, status ->
+            soundPool?.setOnLoadCompleteListener { _, _, status ->
                 if (status == 0) {
                     loadedCount++
-                    Log.d(TAG, "✅ Sound loaded successfully: ID=$sampleId ($loadedCount/$totalSounds)")
-                    
-                    // ✅ CRITICAL: Warm up audio system immediately after first sound loads
-                    // This prevents MediaCodec initialization delays on first key press
-                    // Play at volume 0 to warm up without audible sound
-                    if (loadedCount == 1) {
-                        Handler(Looper.getMainLooper()).postDelayed({
-                            try {
-                                pool.play(sampleId, 0f, 0f, 1, 0, 1.0f)
-                                Log.d(TAG, "🔥 Audio system warmed up (silent play)")
-                            } catch (e: Exception) {
-                                Log.w(TAG, "⚠️ Warm-up play failed", e)
-                            }
-                        }, 50)
+                    // Only log in debug builds to reduce log noise
+                    if (loadedCount == 1 || loadedCount >= totalSounds) {
+                        LogUtil.d(TAG, "Sound loaded: $loadedCount/$totalSounds")
                     }
-                    
+
                     if (loadedCount >= totalSounds) {
                         isInitialized = true
-                        Log.d(TAG, "✅ All sounds loaded, SoundPool ready")
+                        LogUtil.d(TAG, "All sounds loaded, SoundPool ready")
                     }
                 } else {
-                    Log.e(TAG, "❌ Sound load failed: ID=$sampleId, status=$status")
+                  //  LogUtil.e(TAG, "Sound load failed: ID=$sampleId, status=$status")
                 }
             }
 
@@ -100,29 +99,23 @@ object KeyboardSoundManager {
             val executor = Executors.newSingleThreadExecutor()
             executor.execute {
                 try {
-                    Log.d(TAG, "✅ SoundPool initialized, loading ${totalSounds} base sounds in background")
+                    LogUtil.d(TAG, "Loading sounds in background")
                     
-                    // Load sounds sequentially with small delays to reduce MediaCodec churn
+                    // Load sounds sequentially to keep initialization lightweight
                     load(context, "classic", R.raw.key_click)
-                    Thread.sleep(50) // Small delay to let MediaCodec finish
-                    
                     load(context, "mechanical", R.raw.key_mech)
-                    Thread.sleep(50)
-                    
                     load(context, "bubble", R.raw.key_bubble)
-                    Thread.sleep(50)
-                    
                     load(context, "pop", R.raw.key_pop)
                     
-                    Log.d(TAG, "✅ Background sound loading complete")
+                    LogUtil.d(TAG, "Background sound loading complete")
                 } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error loading sounds in background", e)
+                    LogUtil.e(TAG, "Error loading sounds in background", e)
                 } finally {
                     executor.shutdown()
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to initialize SoundPool", e)
+            LogUtil.e(TAG, "Failed to initialize SoundPool", e)
         }
     }
 
@@ -150,12 +143,12 @@ object KeyboardSoundManager {
             val id = soundPool?.load(context, resId, 1)
             if (id != null && id > 0) {
                 soundMap[key.lowercase()] = id
-                Log.d(TAG, "Loaded sound: ${key.lowercase()} → ID=$id")
+                // Only log errors, not successful loads to reduce log noise
             } else {
-                Log.w(TAG, "⚠️ Failed to load sound: $key (invalid ID)")
+                LogUtil.w(TAG, "Failed to load sound: $key (invalid ID)")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Exception loading sound: $key", e)
+            LogUtil.e(TAG, "Exception loading sound: $key", e)
         }
     }
 
@@ -166,7 +159,7 @@ object KeyboardSoundManager {
             customSoundId?.let { oldId ->
                 pool.unload(oldId)
                 soundMap.remove("custom")
-                Log.d(TAG, "🔁 Unloaded previous custom sound")
+                LogUtil.d(TAG, "Unloaded previous custom sound")
             }
 
             val soundId = when {
@@ -182,10 +175,10 @@ object KeyboardSoundManager {
                         // SoundPool.load() reads the file descriptor immediately, so we can close it after
                         val id = pool.load(afd, 1)
                         afd.close()
-                        Log.d(TAG, "✅ Loading asset sound: $uriString (ID=$id)")
+                        LogUtil.d(TAG, "Loading asset sound: $uriString")
                         id
                     } catch (e: Exception) {
-                        Log.e(TAG, "❌ Error loading asset sound: $uriString", e)
+                        LogUtil.e(TAG, "Error loading asset sound: $uriString", e)
                         null
                     }
                 }
@@ -194,7 +187,7 @@ object KeyboardSoundManager {
                     if (file.exists()) {
                         pool.load(file.path, 1)
                     } else {
-                        Log.w(TAG, "⚠️ Custom sound file missing: $uriString")
+                        LogUtil.w(TAG, "Custom sound file missing: $uriString")
                         null
                     }
                 }
@@ -204,14 +197,14 @@ object KeyboardSoundManager {
                 customSoundId = soundId
                 currentCustomUri = uriString
                 soundMap["custom"] = soundId
-                Log.d(TAG, "🎶 Custom sound loaded from $uriString (ID=$soundId)")
+                LogUtil.d(TAG, "Custom sound loaded: $uriString")
             } else {
-                Log.w(TAG, "⚠️ Failed to load custom sound from $uriString")
+                LogUtil.w(TAG, "Failed to load custom sound from $uriString")
             }
 
             customSoundId
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error loading custom sound: $uriString", e)
+            LogUtil.e(TAG, "Error loading custom sound: $uriString", e)
             null
         }
     }
@@ -230,12 +223,12 @@ object KeyboardSoundManager {
     fun play() {
         val pool = soundPool
         if (pool == null) {
-            Log.w(TAG, "⚠️ Cannot play: SoundPool not initialized (call init() first)")
+            // Only log errors, not warnings for normal flow
             return
         }
 
         if (!isInitialized && customSoundId == null) {
-            Log.w(TAG, "⚠️ Cannot play: Sounds still loading")
+            // Sounds still loading - silently skip
             return
         }
 
@@ -245,37 +238,14 @@ object KeyboardSoundManager {
         }
         val soundId = soundMap[resolvedType]
         if (soundId == null) {
-            Log.w(TAG, "⚠️ Cannot play: No sound ID for type '$currentType' (resolved=$resolvedType)")
+            LogUtil.w(TAG, "No sound ID for type '$currentType'")
             return
         }
 
         try {
             pool.play(soundId, volume.coerceIn(0f, 1f), volume.coerceIn(0f, 1f), 1, 0, 1.0f)
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error playing sound", e)
-        }
-    }
-
-    /**
-     * Play a preview of a sound file from assets folder.
-     * @param fileName The sound file name (e.g., "click.mp3")
-     * @param context Context to access assets
-     */
-    fun playPreview(fileName: String, context: Context) {
-        try {
-            val assetPath = "sounds/$fileName"
-            val afd = context.assets.openFd(assetPath)
-            val previewPlayer = android.media.MediaPlayer()
-            previewPlayer.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-            previewPlayer.prepare()
-            previewPlayer.setOnCompletionListener { mp ->
-                mp.release()
-            }
-            previewPlayer.start()
-            afd.close()
-            Log.d(TAG, "🔊 Preview playing: $fileName")
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error playing preview: $fileName", e)
+            LogUtil.e(TAG, "Error playing sound", e)
         }
     }
 
@@ -288,6 +258,14 @@ object KeyboardSoundManager {
      * @param customUri Optional URI/path for custom sound
      */
     fun update(type: String?, vol: Float?, context: Context? = null, customUri: String? = null) {
+        val requestedProfile = type?.lowercase() ?: currentType
+        val requestedVolume = vol?.coerceIn(0f, 1f) ?: volume
+        val requestedUri = customUri ?: currentCustomUri
+        val newSignature = Triple(requestedProfile, requestedVolume, requestedUri)
+        if (newSignature == lastConfigSignature) {
+            return
+        }
+
         var silentProfile = false
         type?.let { profile ->
             val normalized = profile.lowercase()
@@ -296,26 +274,26 @@ object KeyboardSoundManager {
                     currentType = "silent"
                     volume = 0f
                     silentProfile = true
-                    Log.d(TAG, "🔇 Silent sound profile applied")
+                    LogUtil.d(TAG, "Silent sound profile applied")
                 }
                 "custom" -> {
                     if (customUri.isNullOrBlank()) {
-                        Log.w(TAG, "⚠️ Custom sound requested but URI is missing")
+                        LogUtil.w(TAG, "Custom sound requested but URI is missing")
                     } else if (context == null) {
-                        Log.w(TAG, "⚠️ Custom sound requested but context is null")
+                        LogUtil.w(TAG, "Custom sound requested but context is null")
                     } else {
                         val alreadyLoaded = currentCustomUri == customUri && customSoundId != null
                         if (!alreadyLoaded) {
                             val loadedId = loadCustom(context, customUri)
                             if (loadedId != null && loadedId > 0) {
                                 currentType = "custom"
-                                Log.d(TAG, "🎧 Custom sound loaded and set: $customUri (ID=$loadedId)")
+                                LogUtil.d(TAG, "Custom sound loaded: $customUri")
                             } else {
-                                Log.w(TAG, "⚠️ Failed to load custom sound: $customUri")
+                                LogUtil.w(TAG, "Failed to load custom sound: $customUri")
                             }
                         } else {
                             currentType = "custom"
-                            Log.d(TAG, "🎧 Using already loaded custom sound profile")
+                            LogUtil.d(TAG, "Using already loaded custom sound")
                         }
                     }
                 }
@@ -323,9 +301,9 @@ object KeyboardSoundManager {
                     val resolved = resolveType(normalized)
                     if (soundMap.containsKey(resolved)) {
                         currentType = normalized
-                        Log.d(TAG, "🔊 Sound type updated: $normalized (resolved=$resolved)")
+                        LogUtil.d(TAG, "Sound type updated: $normalized")
                     } else {
-                        Log.w(TAG, "⚠️ Unknown sound type: $profile (keeping '$currentType')")
+                        LogUtil.w(TAG, "Unknown sound type: $profile")
                     }
                 }
             }
@@ -334,9 +312,11 @@ object KeyboardSoundManager {
         if (!silentProfile) {
             vol?.let {
                 volume = it.coerceIn(0f, 1f)
-                Log.d(TAG, "🔊 Volume updated: $volume")
+                // Don't log volume updates - too verbose
             }
         }
+
+        lastConfigSignature = Triple(currentType, volume, currentCustomUri)
     }
 
     /**
@@ -351,9 +331,9 @@ object KeyboardSoundManager {
             customSoundId = null
             currentCustomUri = null
             isInitialized = false
-            Log.d(TAG, "🔇 SoundPool released")
+            LogUtil.d(TAG, "SoundPool released")
         } catch (e: Exception) {
-            Log.e(TAG, "Error releasing SoundPool", e)
+            LogUtil.e(TAG, "Error releasing SoundPool", e)
         }
     }
 }

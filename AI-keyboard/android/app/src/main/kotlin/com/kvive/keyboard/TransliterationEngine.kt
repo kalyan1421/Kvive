@@ -7,12 +7,7 @@ import android.util.LruCache
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.io.File
-import com.google.firebase.storage.ktx.storage
-import com.google.firebase.ktx.Firebase
 import kotlinx.coroutines.*
-import kotlinx.coroutines.tasks.await
-import android.content.SharedPreferences
 
 /**
  * Transliteration Engine for Indian Languages
@@ -35,10 +30,6 @@ class TransliterationEngine(
     private val language: String
 ) {
     
-    // SharedPreferences for caching metadata
-    private val cachePrefs: SharedPreferences by lazy {
-        context.getSharedPreferences("transliteration_cache", Context.MODE_PRIVATE)
-    }
     companion object {
         private const val TAG = "TransliterationEngine"
         private const val CACHE_SIZE = 500
@@ -76,21 +67,13 @@ class TransliterationEngine(
         }
     }
     
-    /**
-     * Ensure transliteration map is available, downloading from Firebase if needed
-     * This is the main entry point for cloud-first map loading
-     */
+    /** Ensure transliteration map is available (offline assets only). */
     suspend fun ensureMapAvailable(lang: String) = withContext(Dispatchers.IO) {
         try {
-            LogUtil.d(TAG, "🌐 Ensuring transliteration map available for $lang")
-            
-            // Check and download map if needed
-            val mapFile = ensureTransliterationFile(lang)
-            
-            LogUtil.d(TAG, "✅ Transliteration map ready for $lang (cached: ${mapFile?.exists()})")
-            
+            context.assets.open("transliteration/${lang}_map.json").close()
+            LogUtil.d(TAG, "✅ Transliteration map available for $lang (assets)")
         } catch (e: Exception) {
-            LogUtil.e(TAG, "❌ Error ensuring transliteration map for $lang", e)
+            LogUtil.e(TAG, "❌ Transliteration map missing for $lang", e)
             throw e
         }
     }
@@ -290,22 +273,14 @@ class TransliterationEngine(
     }
     
     /**
-     * Load phoneme mappings from cached file first, then assets
+     * Load phoneme mappings from assets
      */
     private fun loadPhonemeMap() {
         try {
-            // First try cached cloud file
-            val cloudCacheFile = File(context.filesDir, "cloud_cache/transliteration/${language}_map.json")
-            val jsonString = if (cloudCacheFile.exists() && cloudCacheFile.length() > 0) {
-                LogUtil.d(TAG, "📁 Loading transliteration map from cloud cache: ${cloudCacheFile.name}")
-                cloudCacheFile.readText(Charsets.UTF_8)
-            } else {
-                // Fallback to assets
-                val filename = "transliteration/${language}_map.json"
-                val inputStream = context.assets.open(filename)
-                val reader = BufferedReader(InputStreamReader(inputStream, "UTF-8"))
-                reader.use { it.readText() }
-            }
+            val filename = "transliteration/${language}_map.json"
+            val inputStream = context.assets.open(filename)
+            val reader = BufferedReader(InputStreamReader(inputStream, "UTF-8"))
+            val jsonString = reader.use { it.readText() }
             
             val json = JSONObject(jsonString)
             
@@ -358,91 +333,11 @@ class TransliterationEngine(
                 }
             }
             
-            LogUtil.d(TAG, "🌐 Loaded transliteration map for $language (Firebase cache: ${cloudCacheFile.exists()})")
+            LogUtil.d(TAG, "✅ Loaded transliteration map for $language from assets")
             
         } catch (e: Exception) {
             LogUtil.e(TAG, "Error loading transliteration map for $language", e)
         }
-    }
-    
-    /**
-     * Ensure transliteration file exists, downloading from Firebase if needed
-     * 
-     * @param lang Language code (e.g., "hi", "te", "ta")
-     * @return File if available, null if not found anywhere
-     */
-    private suspend fun ensureTransliterationFile(lang: String): File? = withContext(Dispatchers.IO) {
-        // First, check if file exists in local cloud cache
-        val cachedFile = File(context.filesDir, "cloud_cache/transliteration/${lang}_map.json")
-        if (cachedFile.exists() && cachedFile.length() > 0) {
-            LogUtil.d(TAG, "✅ Using cached transliteration map: ${cachedFile.name}")
-            return@withContext cachedFile
-        }
-        
-        // Check if it exists in assets (bundled)
-        try {
-            context.assets.open("transliteration/${lang}_map.json").use {
-                LogUtil.d(TAG, "✅ Using bundled transliteration map: ${lang}_map.json")
-                return@withContext null // Return null to signal: use assets
-            }
-        } catch (e: Exception) {
-            // Not in assets, try Firebase
-        }
-        
-        // Attempt to download from Firebase Storage with retry logic
-        return@withContext downloadTransliterationFromFirebase(lang, cachedFile, maxRetries = 3)
-    }
-    
-    /**
-     * Download transliteration file from Firebase Storage with exponential backoff retry
-     */
-    private suspend fun downloadTransliterationFromFirebase(
-        lang: String,
-        targetFile: File,
-        maxRetries: Int = 3
-    ): File? = withContext(Dispatchers.IO) {
-        repeat(maxRetries) { attempt ->
-            try {
-                val storage = Firebase.storage
-                val storageRef = storage.reference.child("transliteration/${lang}_map.json")
-                
-                // Create cache directory if needed
-                targetFile.parentFile?.mkdirs()
-                
-                // Download with coroutine-friendly await()
-                LogUtil.d(TAG, "🌐 Downloading transliteration map for $lang (attempt ${attempt + 1}/$maxRetries)")
-                storageRef.getFile(targetFile).await()
-                
-                // Verify download success
-                if (targetFile.exists() && targetFile.length() > 0) {
-                    LogUtil.d(TAG, "🌐 Downloaded transliteration for $lang from Firebase (${targetFile.length()} bytes)")
-                    
-                    // Store version info for future updates
-                    cachePrefs.edit()
-                        .putLong("map_${lang}_downloaded", System.currentTimeMillis())
-                        .putInt("map_${lang}_version", 1)
-                        .apply()
-                        
-                    return@withContext targetFile
-                } else {
-                    LogUtil.w(TAG, "⚠️ Downloaded transliteration file is empty: $lang")
-                }
-                
-            } catch (e: Exception) {
-                LogUtil.w(TAG, "⚠️ Download attempt ${attempt + 1} failed for transliteration $lang: ${e.message}")
-                
-                if (attempt < maxRetries - 1) {
-                    // Exponential backoff: 1s, 2s, 4s
-                    val delayMs = 1000L * (1 shl attempt)
-                    LogUtil.d(TAG, "Retrying in ${delayMs}ms...")
-                    delay(delayMs)
-                } else {
-                    LogUtil.e(TAG, "❌ All download attempts failed for transliteration $lang", e)
-                }
-            }
-        }
-        
-        return@withContext null
     }
     
     /**
@@ -476,4 +371,3 @@ data class TranslitSuggestion(
     val confidence: Double,
     val isPrimary: Boolean
 )
-

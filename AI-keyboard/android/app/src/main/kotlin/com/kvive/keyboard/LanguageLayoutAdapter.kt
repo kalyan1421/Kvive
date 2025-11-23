@@ -2,12 +2,6 @@ package com.kvive.keyboard
 
 import android.content.Context
 import android.util.Log
-import com.google.firebase.storage.FirebaseStorage
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -19,7 +13,7 @@ import java.nio.charset.Charset
  * Loads keyboard layouts using:
  * 1. Base templates (QWERTY, INSCRIPT, ARABIC) - define physical key positions
  * 2. Per-language keymaps - define character mappings for each language
- * 3. Optional background Firebase sync (versioned, non-blocking) to refresh cache
+ * 3. Fully offline keymaps cached in RAM (no background network)
  * 
  * Architecture:
  * - Template defines the grid structure (rows/cols)
@@ -88,8 +82,7 @@ class LanguageLayoutAdapter(private val context: Context) {
     }
     private val memoryCache = mutableMapOf<String, JSONObject>()
     private val versionCache = mutableMapOf<String, Int>()
-    private val firebaseSyncScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val attemptedFirebaseSync = mutableSetOf<String>()
+    private val layoutCache = mutableMapOf<String, JSONObject>()
     
     private var showUtilityKey = true
     
@@ -115,6 +108,13 @@ class LanguageLayoutAdapter(private val context: Context) {
         val rowHeightsDp: List<Int> = emptyList()
     )
     
+    /**
+     * Return cached layout JSON (keymap) for a language, loading from assets once.
+     */
+    fun getLayout(lang: String): JSONObject {
+        return layoutCache.getOrPut(lang) { loadKeymap(lang) }
+    }
+
     /**
      * Build number row for a specific language with native numerals
      */
@@ -152,7 +152,7 @@ class LanguageLayoutAdapter(private val context: Context) {
      */
     suspend fun buildLayoutFor(languageCode: String, mode: KeyboardMode, numberRowEnabled: Boolean): LayoutModel {
         Log.d(TAG, "🔧 Building layout for: $languageCode, mode: $mode, numberRow: $numberRowEnabled")
-        val keymap = loadKeymap(languageCode)
+        val keymap = getLayout(languageCode)
         
         // Step 1: Determine template file based on mode
         val templateName = when (mode) {
@@ -511,11 +511,11 @@ class LanguageLayoutAdapter(private val context: Context) {
      * Never blocks on network; background sync is scheduled separately.
      */
     private fun loadKeymap(languageCode: String): JSONObject {
+        layoutCache[languageCode]?.let { return it }
         memoryCache[languageCode]?.let { cached ->
-            scheduleFirebaseSync(languageCode)
+            layoutCache[languageCode] = cached
             return cached
         }
-        scheduleFirebaseSync(languageCode)
 
         // Prefer cached downloads (may be newer than bundled assets)
         val cachedFile = File(cacheDir, "$languageCode.json")
@@ -524,6 +524,7 @@ class LanguageLayoutAdapter(private val context: Context) {
                 val jsonStr = cachedFile.readText()
                 val keymap = JSONObject(jsonStr)
                 cacheKeymap(languageCode, keymap, jsonStr)
+                layoutCache[languageCode] = keymap
                 return keymap
             } catch (e: Exception) {
                 Log.w(TAG, "⚠️ Failed to read cached keymap: $languageCode", e)
@@ -537,9 +538,8 @@ class LanguageLayoutAdapter(private val context: Context) {
             val jsonStr = inputStream.bufferedReader(Charset.forName("UTF-8")).use { it.readText() }
             val keymap = JSONObject(jsonStr)
             cacheKeymap(languageCode, keymap, jsonStr)
-            // Mark version as baseline 0 so background sync can upgrade quietly
             writeLocalVersion(languageCode, versionCache[languageCode] ?: 0)
-            scheduleFirebaseSync(languageCode)
+            layoutCache[languageCode] = keymap
             Log.d(TAG, "✅ Loaded local keymap into RAM: $languageCode")
             return keymap
         } catch (e: Exception) {
@@ -548,7 +548,7 @@ class LanguageLayoutAdapter(private val context: Context) {
 
         val fallback = createFallbackKeymap(languageCode)
         cacheKeymap(languageCode, fallback)
-        scheduleFirebaseSync(languageCode)
+        layoutCache[languageCode] = fallback
         return fallback
     }
     
@@ -665,11 +665,10 @@ class LanguageLayoutAdapter(private val context: Context) {
     }
 
     /**
-     * Preload a single keymap (no network). Schedules background sync separately.
+     * Preload a single keymap (no network).
      */
     suspend fun preloadKeymap(languageCode: String) {
         loadKeymap(languageCode)
-        scheduleFirebaseSync(languageCode)
     }
 
     /**
@@ -682,44 +681,6 @@ class LanguageLayoutAdapter(private val context: Context) {
             File(cacheDir, "$languageCode.json").writeText(jsonStr)
         } catch (e: Exception) {
             Log.w(TAG, "⚠️ Unable to cache keymap on disk for $languageCode", e)
-        }
-    }
-
-    /**
-     * Schedule a non-blocking Firebase sync to refresh keymaps if newer versions exist.
-     */
-    private fun scheduleFirebaseSync(languageCode: String) {
-        if (attemptedFirebaseSync.contains(languageCode)) return
-        attemptedFirebaseSync.add(languageCode)
-        firebaseSyncScope.launch {
-            tryFirebaseDownloadOnce(languageCode)
-        }
-    }
-
-    /**
-     * Fetch updated keymap + version from Firebase once per session without blocking UI.
-     * Uses version files (keymaps/lang.version) to avoid unnecessary downloads.
-     */
-    private suspend fun tryFirebaseDownloadOnce(languageCode: String) {
-        try {
-            val storage = FirebaseStorage.getInstance().reference.child("keymaps")
-            val remoteVersionBytes = storage.child("$languageCode.version").getBytes(64).await()
-            val remoteVersion = remoteVersionBytes.toString(Charsets.UTF_8).trim().toIntOrNull() ?: 0
-            val localVersion = readLocalVersion(languageCode)
-
-            if (remoteVersion <= localVersion) {
-                Log.d(TAG, "📦 Keymap up-to-date for $languageCode (v$localVersion)")
-                return
-            }
-
-            val keymapBytes = storage.child("$languageCode.json").getBytes(512 * 1024).await()
-            val jsonStr = keymapBytes.toString(Charsets.UTF_8)
-            val keymap = JSONObject(jsonStr)
-            cacheKeymap(languageCode, keymap, jsonStr)
-            writeLocalVersion(languageCode, remoteVersion)
-            Log.d(TAG, "✅ Refreshed keymap from Firebase for $languageCode → v$remoteVersion")
-        } catch (e: Exception) {
-            Log.w(TAG, "⚠️ Background keymap sync failed for $languageCode (non-blocking)", e)
         }
     }
 

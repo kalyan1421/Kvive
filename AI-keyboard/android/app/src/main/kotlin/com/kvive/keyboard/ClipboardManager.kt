@@ -19,8 +19,6 @@ import android.widget.*
 import androidx.core.content.ContextCompat
 import android.Manifest
 import com.kvive.keyboard.managers.BaseManager
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONArray
@@ -185,10 +183,6 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
     
     private val listeners = mutableListOf<ClipboardHistoryListener>()
     
-    // Firebase for cloud sync
-    private val firestore = FirebaseFirestore.getInstance()
-    private val auth = FirebaseAuth.getInstance()
-    
     // Vibrator for copy feedback
     private val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
     
@@ -301,111 +295,14 @@ class ClipboardHistoryManager(context: Context) : BaseManager(context) {
      * Sync clipboard history to Firestore (Kvīve Cloud)
      */
     fun syncToCloud() {
-        try {
-            val user = auth.currentUser
-            if (user == null || user.isAnonymous) {
-                Log.d(TAG, "⚠️ Cloud sync skipped: User not authenticated")
-                return
-            }
-            
-            val userId = user.uid
-            val clipboardCollection = firestore.collection("users")
-                .document(userId)
-                .collection("clipboard")
-            
-            // Upload recent non-template items (last 20)
-            val itemsToSync = historyItems.filter { !it.isTemplate }.take(20)
-            
-            itemsToSync.forEach { item ->
-                val data = hashMapOf(
-                    "text" to item.text,
-                    "timestamp" to item.timestamp,
-                    "isPinned" to item.isPinned,
-                    "id" to item.id
-                )
-                
-                clipboardCollection.document(item.id)
-                    .set(data)
-                    .addOnSuccessListener {
-                        Log.d(TAG, "☁️ Synced item to cloud: ${item.getPreview(30)}")
-                    }
-                    .addOnFailureListener { e ->
-                        Log.e(TAG, "❌ Failed to sync item to cloud", e)
-                    }
-            }
-            
-            Log.d(TAG, "☁️ Cloud sync initiated for ${itemsToSync.size} items")
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error syncing to cloud", e)
-        }
+        Log.d(TAG, "☁️ Cloud sync disabled (offline-only IME)")
     }
     
     /**
      * Sync clipboard history from Firestore (Kvīve Cloud)
      */
     fun syncFromCloud() {
-        try {
-            val user = auth.currentUser
-            if (user == null || user.isAnonymous) {
-                Log.d(TAG, "⚠️ Cloud sync skipped: User not authenticated")
-                return
-            }
-            
-            val userId = user.uid
-            firestore.collection("users")
-                .document(userId)
-                .collection("clipboard")
-                .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.DESCENDING)
-                .limit(50)
-                .get()
-                .addOnSuccessListener { documents ->
-                    var syncedCount = 0
-                    for (document in documents) {
-                        try {
-                            val text = document.getString("text") ?: continue
-                            val timestamp = document.getLong("timestamp") ?: System.currentTimeMillis()
-                            val isPinned = document.getBoolean("isPinned") ?: false
-                            val id = document.getString("id") ?: document.id
-                            
-                            // Check if item already exists
-                            val exists = historyItems.any { it.id == id }
-                            if (!exists) {
-                                val item = ClipboardItem(
-                                    id = id,
-                                    text = text,
-                                    timestamp = timestamp,
-                                    isPinned = isPinned
-                                )
-                                historyItems.add(item)
-                                syncedCount++
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "❌ Error parsing cloud item", e)
-                        }
-                    }
-                    
-                    if (syncedCount > 0) {
-                        // Sort by timestamp
-                        historyItems.sortByDescending { it.timestamp }
-                        // Trim to max size
-                        while (historyItems.size > maxHistorySize) {
-                            historyItems.removeAt(historyItems.size - 1)
-                        }
-                        saveHistoryToPrefs()
-                        notifyHistoryUpdated()
-                        Log.d(TAG, "☁️ Synced $syncedCount items from cloud")
-                    } else {
-                        Log.d(TAG, "☁️ No new items to sync from cloud")
-                    }
-                }
-                .addOnFailureListener { e ->
-                    Log.e(TAG, "❌ Failed to sync from cloud", e)
-                }
-                
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Error syncing from cloud", e)
-        }
+        Log.d(TAG, "☁️ Cloud sync disabled (offline-only IME)")
     }
     
     private fun addClipboardItem(text: String) {
@@ -899,8 +796,19 @@ class ClipboardPanel(
             )
             
             setOnClickListener {
-                onItemSelected?.invoke(item)
-                dismiss()
+                try {
+                    // Safely invoke callback - may be null if keyboard is closing
+                    onItemSelected?.invoke(item)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error invoking clipboard item selected callback: ${e.message}", e)
+                } finally {
+                    // Always try to dismiss, but handle errors gracefully
+                    try {
+                        dismiss()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error dismissing clipboard panel: ${e.message}", e)
+                    }
+                }
             }
         }
         
@@ -924,7 +832,11 @@ class ClipboardPanel(
                 setPadding(8, 0, 8, 0)
                 isClickable = true
                 setOnClickListener {
-                    onItemPinToggled?.invoke(item)
+                    try {
+                        onItemPinToggled?.invoke(item)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error toggling clipboard item pin: ${e.message}", e)
+                    }
                 }
             }
             itemLayout.addView(pinButton)
@@ -935,7 +847,11 @@ class ClipboardPanel(
                 setPadding(8, 0, 0, 0)
                 isClickable = true
                 setOnClickListener {
-                    onItemDeleted?.invoke(item)
+                    try {
+                        onItemDeleted?.invoke(item)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error deleting clipboard item: ${e.message}", e)
+                    }
                 }
             }
             itemLayout.addView(deleteButton)
@@ -1347,8 +1263,19 @@ class UnifiedClipboardManager(
     }
     
     private fun onItemSelected(item: ClipboardItem) {
-        onItemSelectedCallback?.invoke(item)
-        dismissPanel()
+        try {
+            // Safely invoke callback - may be null if keyboard is closing
+            onItemSelectedCallback?.invoke(item)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in clipboard item selected callback: ${e.message}", e)
+        } finally {
+            // Always try to dismiss panel, but handle errors gracefully
+            try {
+                dismissPanel()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error dismissing clipboard panel: ${e.message}", e)
+            }
+        }
     }
     
     fun setOnItemSelectedCallback(callback: (ClipboardItem) -> Unit) {

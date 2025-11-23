@@ -3091,19 +3091,67 @@ private enum class ToneAction(
                 setColorFilter(ColorUtils.setAlphaComponent(Color.WHITE, 200))
                 layoutParams = LinearLayout.LayoutParams(dpToPx(28), dpToPx(28))
                 setOnClickListener {
-                    val deleted = service?.deleteClipboardItem(item.id) ?: false
-                    val message = if (deleted) "Item removed" else "Unable to remove item"
-                    // Toast removed - item removal logged only
-                    rebuildDynamicPanelsFromPrompts()
+                    try {
+                        // Check if service is still available
+                        if (service == null) {
+                            android.util.Log.w("UnifiedPanelManager", "Cannot delete clipboard item: service is null (keyboard may be closing)")
+                            return@setOnClickListener
+                        }
+                        
+                        val deleted = service.deleteClipboardItem(item.id)
+                        if (deleted) {
+                            // Only rebuild if keyboard is still active
+                            try {
+                                rebuildDynamicPanelsFromPrompts()
+                            } catch (e: Exception) {
+                                android.util.Log.w("UnifiedPanelManager", "Cannot rebuild panels (keyboard may be closing): ${e.message}")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("UnifiedPanelManager", "Error deleting clipboard item: ${e.message}", e)
+                    }
                 }
             }
             addView(deleteBtn)
 
             setOnClickListener {
-                val ic = inputConnectionProvider()
-                ic?.commitText(text, 1)
-                // Toast removed - clipboard insert logged only
-                onBackToKeyboard()
+                try {
+                    // Get input connection - may be null if keyboard is closing
+                    val ic = inputConnectionProvider()
+                    if (ic == null) {
+                        android.util.Log.w("UnifiedPanelManager", "Cannot insert clipboard text: input connection is null (keyboard may be closing)")
+                        return@setOnClickListener
+                    }
+                    
+                    // Validate connection is still active by testing it
+                    try {
+                        val testText = ic.getTextBeforeCursor(1, 0)
+                        if (testText == null) {
+                            android.util.Log.w("UnifiedPanelManager", "Input connection is stale or invalid")
+                            return@setOnClickListener
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("UnifiedPanelManager", "Input connection validation failed: ${e.message}")
+                        return@setOnClickListener
+                    }
+                    
+                    // Commit text with error handling
+                    try {
+                        ic.commitText(text, 1)
+                    } catch (e: Exception) {
+                        android.util.Log.e("UnifiedPanelManager", "Error committing clipboard text: ${e.message}", e)
+                        return@setOnClickListener
+                    }
+                    
+                    // Only navigate back if commit succeeded
+                    try {
+                        onBackToKeyboard()
+                    } catch (e: Exception) {
+                        android.util.Log.w("UnifiedPanelManager", "Error navigating back to keyboard: ${e.message}")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("UnifiedPanelManager", "Unexpected error handling clipboard item tap: ${e.message}", e)
+                }
             }
         }
     }

@@ -48,6 +48,8 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         multiDexEnabled = true
+        // Use custom Application to block Firebase/GMS in IME process only
+        manifestPlaceholders["applicationName"] = "com.kvive.keyboard.KeyboardApplication"
         
         ndk {
             abiFilters += listOf("armeabi-v7a", "arm64-v8a")

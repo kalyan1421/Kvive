@@ -1185,8 +1185,22 @@ class UnifiedAutocorrectEngine(
      * Preload dictionaries for specified languages (legacy compatibility)
      */
     fun preloadLanguages(languages: List<String>) {
-        // Delegated to MultilingualDictionary preload
-        LogUtil.d(TAG, "Legacy preloadLanguages called for: $languages")
+        CoroutineScope(Dispatchers.IO).launch {
+            languages.forEach { lang ->
+                try {
+                    multilingualDictionary.preload(lang)
+                    val resources = multilingualDictionary.get(lang)
+                    if (resources != null) {
+                        // Warm engine for first language or if current not set
+                        if (!hasLanguage(lang) || languageResources == null) {
+                            setLanguage(lang, resources)
+                        }
+                    }
+                } catch (e: Exception) {
+                    LogUtil.e(TAG, "Error preloading language $lang into engine", e)
+                }
+            }
+        }
     }
 
     /**

@@ -9,8 +9,13 @@ import com.kvive.keyboard.BuildConfig
  * - Error logs are always enabled
  * - Provides consistent logging across the application
  * 
- * IMPORTANT: Android system logs (BufferQueueProducer, queueBuffer, etc.) are normal
- * for Flutter/SurfaceView-based activities.
+ * IMPORTANT NOTES:
+ * - Android system logs (MediaCodec, BufferQueueProducer, etc.) are framework-level logs
+ *   that appear when SoundPool loads audio files. These cannot be suppressed from app code
+ *   but are automatically filtered in release builds.
+ * - Google Play Services warnings (GoogleApiManager, FlagRegistrar) are non-critical API
+ *   availability warnings that don't affect functionality.
+ * - Use LogUtil instead of android.util.Log directly to respect build type.
  */
 object LogUtil {
     // Only enable debug logging in DEBUG builds

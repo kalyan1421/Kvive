@@ -159,7 +159,8 @@ object LanguageConfigs {
             hasAccents = false,
             dictionaryFile = "ar_dict.db",
             correctionRules = "ar_rules.json",
-            flag = "🇸🇦"
+            flag = "🇸🇦",
+            source = Source.LOCAL
         ),
         "ru" to LanguageConfig(
             code = "ru",
@@ -171,7 +172,8 @@ object LanguageConfigs {
             hasAccents = false,
             dictionaryFile = "ru_dict.db",
             correctionRules = "ru_rules.json",
-            flag = "🇷🇺"
+            flag = "🇷🇺",
+            source = Source.LOCAL
         ),
         "pt" to LanguageConfig(
             code = "pt",
@@ -183,7 +185,8 @@ object LanguageConfigs {
             hasAccents = true,
             dictionaryFile = "pt_dict.db",
             correctionRules = "pt_rules.json",
-            flag = "🇵🇹"
+            flag = "🇵🇹",
+            source = Source.LOCAL
         ),
         "it" to LanguageConfig(
             code = "it",
@@ -195,7 +198,8 @@ object LanguageConfigs {
             hasAccents = true,
             dictionaryFile = "it_dict.db",
             correctionRules = "it_rules.json",
-            flag = "🇮🇹"
+            flag = "🇮🇹",
+            source = Source.LOCAL
         ),
         "ja" to LanguageConfig(
             code = "ja",
@@ -207,7 +211,8 @@ object LanguageConfigs {
             hasAccents = false,
             dictionaryFile = "ja_dict.db",
             correctionRules = "ja_rules.json",
-            flag = "🇯🇵"
+            flag = "🇯🇵",
+            source = Source.LOCAL
         )
     )
     

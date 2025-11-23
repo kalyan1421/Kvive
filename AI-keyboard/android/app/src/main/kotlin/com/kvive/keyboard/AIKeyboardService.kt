@@ -38,6 +38,7 @@ import android.view.Gravity
 import android.graphics.drawable.ColorDrawable
 import java.util.Locale
 import com.kvive.keyboard.utils.*
+import com.kvive.keyboard.utils.ProcessGuard
 import android.inputmethodservice.InputMethodService.Insets
 import kotlinx.coroutines.*
 import kotlin.math.abs
@@ -605,6 +606,7 @@ class AIKeyboardService : InputMethodService(),
     
     // Coroutine scope for async operations
     private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val firebaseBlockedInIme = ProcessGuard.isFirebaseBlocked()
     
     // Clipboard history listener
     private val clipboardHistoryListener = object : ClipboardHistoryManager.ClipboardHistoryListener {
@@ -844,24 +846,29 @@ class AIKeyboardService : InputMethodService(),
         // ✅ Set instance for UnifiedKeyboardView to access
         instance = this
 
-        // ✅ CRITICAL: Initialize SoundPool singleton FIRST
-        // This prevents fallback to AudioManager (MediaCodec) on key presses
-        KeyboardSoundManager.init(this)
-        Log.d(TAG, "✅ KeyboardSoundManager singleton initialized")
-        
-        // Load selected sound from preferences
+        // STEP 1 — Load sound preference BEFORE init()
         val prefs = getSharedPreferences("keyboard_prefs", Context.MODE_PRIVATE)
         val selectedSound = prefs.getString("selected_sound", null)
+
+        var initialSoundProfile = "default"
+        var initialCustomSoundUri: String? = null
+
         if (selectedSound != null) {
-            // Set the sound profile variables first
-            selectedSoundProfile = "custom"
-            val assetPath = "sounds/$selectedSound"
-            customSoundUri = assetPath
-            
-            // ✅ CRITICAL: Don't configure sound manager here - wait for settings to load
-            // configureSoundManager() will be called after settings are loaded
-            Log.d(TAG, "🔊 Loaded keyboard sound on startup: $selectedSound (will configure after settings load)")
+            initialSoundProfile = "custom"
+            initialCustomSoundUri = "sounds/$selectedSound"
+            Log.d(TAG, "🔊 Selected custom sound: $initialCustomSoundUri")
+        } else {
+            Log.d(TAG, "🔊 Using default sound profile")
         }
+
+        // STEP 2 — Initialize SoundManager WITH correct profile
+        KeyboardSoundManager.init(
+            context = this,
+            initialProfile = initialSoundProfile,
+            initialCustomUri = initialCustomSoundUri
+        )
+
+        Log.d(TAG, "✅ KeyboardSoundManager initialized with correct sound profile")
         // Initialize keyboard height manager
         keyboardHeightManager = KeyboardHeightManager(this)
 
@@ -1036,23 +1043,27 @@ class AIKeyboardService : InputMethodService(),
             }
 
             if (::userDictionaryManager.isInitialized && ::dictionaryManager.isInitialized) {
-                val currentLang = dictionaryManager.getCurrentLanguage()
-                try {
-                    userDictionaryManager.syncFromCloud(currentLang)
-                    dictionaryManager.setCloudSyncCallback { shortcuts ->
-                        userDictionaryManager.syncShortcutsToCloud(shortcuts, currentLang)
-                        Log.d(TAG, "☁️ Synced ${shortcuts.size} shortcuts for $currentLang")
+                if (firebaseBlockedInIme) {
+                    Log.d(TAG, "☁️ Cloud sync skipped in IME process (Firebase blocked)")
+                } else {
+                    val currentLang = dictionaryManager.getCurrentLanguage()
+                    try {
+                        userDictionaryManager.syncFromCloud(currentLang)
+                        dictionaryManager.setCloudSyncCallback { shortcuts ->
+                            userDictionaryManager.syncShortcutsToCloud(shortcuts, currentLang)
+                            Log.d(TAG, "☁️ Synced ${shortcuts.size} shortcuts for $currentLang")
+                        }
+                        userDictionaryManager.loadShortcutsFromCloud(currentLang) { cloudShortcuts ->
+                            dictionaryManager.importFromCloud(cloudShortcuts)
+                            Log.d(TAG, "✅ Imported ${cloudShortcuts.size} shortcuts from cloud for $currentLang")
+                        }
+                        withContext(Dispatchers.Main) {
+                            setupPeriodicSync()
+                        }
+                        Log.d(TAG, "✅ Custom shortcuts cloud sync enabled asynchronously for $currentLang")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Error syncing user dictionary from cloud", e)
                     }
-                    userDictionaryManager.loadShortcutsFromCloud(currentLang) { cloudShortcuts ->
-                        dictionaryManager.importFromCloud(cloudShortcuts)
-                        Log.d(TAG, "✅ Imported ${cloudShortcuts.size} shortcuts from cloud for $currentLang")
-                    }
-                    withContext(Dispatchers.Main) {
-                        setupPeriodicSync()
-                    }
-                    Log.d(TAG, "✅ Custom shortcuts cloud sync enabled asynchronously for $currentLang")
-                } catch (e: Exception) {
-                    Log.e(TAG, "❌ Error syncing user dictionary from cloud", e)
                 }
             }
 
@@ -1284,6 +1295,22 @@ class AIKeyboardService : InputMethodService(),
             )
             Log.d(TAG, "✅ UnifiedSuggestionController initialized with all engines")
             Log.d(TAG, "✅ SuggestionsPipeline dependencies configured")
+
+            // Preload all enabled languages into RAM (dictionaries + engine) at boot
+            coroutineScope.launch {
+                val enabled = languageManager.getEnabledLanguages().toList()
+                enabled.forEach { lang ->
+                    try {
+                        multilingualDictionary.preload(lang)
+                        multilingualDictionary.get(lang)?.let { resources ->
+                            autocorrectEngine.setLanguage(lang, resources)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Failed to warm language $lang", e)
+                    }
+                }
+                Log.d(TAG, "🔥 Warm preload complete for languages: $enabled")
+            }
             
             // Wire language activation callback for automatic engine setup after download
             multilingualDictionary.setOnLanguageActivatedListener { lang ->
@@ -2840,14 +2867,17 @@ class AIKeyboardService : InputMethodService(),
             
             if (::userDictionaryManager.isInitialized) {
                 userDictionaryManager.switchLanguage(currentLanguage)
-                
-                // Sync from cloud for new language
-                userDictionaryManager.syncFromCloud(currentLanguage)
-                
-                // Load shortcuts for new language
-                userDictionaryManager.loadShortcutsFromCloud(currentLanguage) { cloudShortcuts ->
-                    dictionaryManager.importFromCloud(cloudShortcuts)
-                    Log.d(TAG, "✅ Loaded ${cloudShortcuts.size} shortcuts for $currentLanguage")
+                if (firebaseBlockedInIme) {
+                    Log.d(TAG, "☁️ Cloud sync skipped for $currentLanguage (IME process)")
+                } else {
+                    // Sync from cloud for new language
+                    userDictionaryManager.syncFromCloud(currentLanguage)
+                    
+                    // Load shortcuts for new language
+                    userDictionaryManager.loadShortcutsFromCloud(currentLanguage) { cloudShortcuts ->
+                        dictionaryManager.importFromCloud(cloudShortcuts)
+                        Log.d(TAG, "✅ Loaded ${cloudShortcuts.size} shortcuts for $currentLanguage")
+                    }
                 }
                 
                 Log.d(TAG, "✅ User dictionary manager switched to $currentLanguage")
@@ -3248,9 +3278,6 @@ class AIKeyboardService : InputMethodService(),
             flutterPrefs.edit().putString("flutter.sound.type", "custom").apply()
             flutterPrefs.edit().putString("flutter.sound.asset", assetPath).apply()
             
-            // Play preview
-            KeyboardSoundManager.playPreview(fileName, this)
-            
             // Update sound manager with the asset file - this loads it into SoundPool
             KeyboardSoundManager.update("custom", computeEffectiveSoundVolume(), this, assetPath)
             
@@ -3300,6 +3327,10 @@ class AIKeyboardService : InputMethodService(),
     }
 
     fun syncClipboardToCloud(): Boolean {
+        if (firebaseBlockedInIme) {
+            Log.d(TAG, "☁️ Clipboard cloud sync disabled in IME process")
+            return false
+        }
         return try {
             if (::clipboardHistoryManager.isInitialized) {
                 clipboardHistoryManager.syncToCloud()
@@ -3316,6 +3347,10 @@ class AIKeyboardService : InputMethodService(),
     }
 
     fun syncClipboardFromCloud(): Boolean {
+        if (firebaseBlockedInIme) {
+            Log.d(TAG, "☁️ Clipboard cloud pull disabled in IME process")
+            return false
+        }
         return try {
             if (::clipboardHistoryManager.isInitialized) {
                 clipboardHistoryManager.syncFromCloud()
@@ -8658,6 +8693,10 @@ class AIKeyboardService : InputMethodService(),
      * Set up periodic cloud sync for user dictionary
      */
     private fun setupPeriodicSync() {
+        if (firebaseBlockedInIme) {
+            Log.d(TAG, "Periodic cloud sync disabled in IME process")
+            return
+        }
         syncHandler = Handler(Looper.getMainLooper())
         syncRunnable = object : Runnable {
             override fun run() {
@@ -8802,7 +8841,7 @@ class AIKeyboardService : InputMethodService(),
         }
         
         try {
-            Log.d(TAG, "🌐 Activating Firebase language: $lang")
+            Log.d(TAG, "📦 Activating offline language: $lang")
             
             // Check if already activated to prevent duplicate work
             if (autocorrectEngine.hasLanguage(lang)) {
@@ -8810,13 +8849,10 @@ class AIKeyboardService : InputMethodService(),
                 return
             }
             
-            // Step 1: Ensure Firebase data is available (download if needed)
-            multilingualDictionary.ensureLanguageAvailable(lang)
-            
-            // Step 2: Preload language into memory
+            // Step 1: Preload language into memory from assets
             multilingualDictionary.preload(lang)
             
-            // Step 3: Wait for resources with retry logic
+            // Step 2: Wait for resources with retry logic
             var resources: LanguageResources? = null
             var attempts = 0
             val maxAttempts = 10
@@ -8825,13 +8861,13 @@ class AIKeyboardService : InputMethodService(),
                 resources = multilingualDictionary.get(lang)
                 if (resources == null) {
                     attempts++
-                    Log.w(TAG, "⏳ Waiting for Firebase resources to load... attempt $attempts/$maxAttempts")
+                    Log.w(TAG, "⏳ Waiting for offline resources to load... attempt $attempts/$maxAttempts")
                     delay(300) // Wait 300ms between attempts
                 }
             }
             
             if (resources != null) {
-                // Step 4: Apply language resources once and update UI
+                // Step 3: Apply language resources once and update UI
                 applyLanguageResources(lang, resources, updateCurrentLanguage = true)
                 Log.d(TAG, "🔁 Language switched to $lang (Firebase data)")
             } else {

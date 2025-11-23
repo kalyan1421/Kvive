@@ -86,31 +86,20 @@ class KeyboardSettingsBootstrapper {
         await prefs.setString('keyboard.theme', defaultTheme.id);
       }
 
-      // Rehydrate feedback system so haptics/sound obey saved intensity on launch.
-      final haptic = _intensityFor(
-        prefs.getInt('haptic_intensity'),
-        FeedbackIntensity.medium,
-      );
-      final sound = _intensityFor(
-        prefs.getInt('sound_intensity'),
-        FeedbackIntensity.off,
-      );
-      final visual = _intensityFor(
-        prefs.getInt('visual_intensity'),
-        FeedbackIntensity.off,
-      );
-      // ✅ CRITICAL: Read sound volume from flutter.sound_volume (0-100 scale) or sound_volume (0-100 scale)
-      // Convert to 0-1 scale for KeyboardFeedbackSystem
-      final soundVolumePercent = prefs.getInt('flutter.sound_volume') ?? 
-                                 (_readDouble(prefs, 'sound_volume', 50.0).toInt());
-      final volume = (soundVolumePercent / 100.0).clamp(0.0, 1.0);
+      // Rehydrate feedback system so haptics obey saved intensity on launch.
+      // final haptic = _intensityFor(
+      //   prefs.getInt('haptic_intensity'),
+      //   FeedbackIntensity.medium,
+      // );
+      // final visual = _intensityFor(
+      //   prefs.getInt('visual_intensity'),
+      //   FeedbackIntensity.off,
+      // );
 
-      KeyboardFeedbackSystem.updateSettings(
-        haptic: haptic,
-        sound: sound,
-        visual: visual,
-        volume: volume,
-      );
+      // KeyboardFeedbackSystem.updateSettings(
+      //   haptic: haptic,
+      //   visual: visual,
+      // );
 
       // Ensure popup preview preference is consistently stored under the legacy key
       // that the Android service reads on boot.
@@ -132,8 +121,6 @@ class KeyboardSettingsBootstrapper {
         'shiftFeedback': prefs.getBool('show_shift_feedback') ?? false,
         'showNumberRow': prefs.getBool('keyboard.numberRow') ?? false,
         'showUtilityKey': prefs.getBool('keyboard.showUtilityKey') ?? true,
-        'soundEnabled': prefs.getBool('sound_enabled') ?? false,
-        'soundType': prefs.getString('flutter.sound.type') ?? 'default',
         'effectType': prefs.getString('flutter.effect.type') ?? 'none',
       };
 
@@ -174,13 +161,13 @@ class KeyboardSettingsBootstrapper {
     return fallback;
   }
 
-  static FeedbackIntensity _intensityFor(int? index, FeedbackIntensity fallback) {
-    if (index == null) return fallback;
-    if (index < 0 || index >= FeedbackIntensity.values.length) {
-      return fallback;
-    }
-    return FeedbackIntensity.values[index];
-  }
+  // static FeedbackIntensity _intensityFor(int? index, FeedbackIntensity fallback) {
+  //   if (index == null) return fallback;
+  //   if (index < 0 || index >= FeedbackIntensity.values.length) {
+  //     return fallback;
+  //   }
+  //   return FeedbackIntensity.values[index];
+  // }
 
   static bool _isLegacyDefaultLight(Map<String, dynamic> themeJson) {
     final id = (themeJson['id'] as String?)?.toLowerCase();

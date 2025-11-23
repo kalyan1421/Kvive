@@ -31,24 +31,8 @@ class FCMTokenService {
       // Set background message handler
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
-      // Request permission for notifications (iOS)
-      if (!kIsWeb) {
-        final settings = await _messaging.requestPermission(
-          alert: true,
-          badge: true,
-          sound: true,
-          provisional: false,
-        );
+      // Permission request moved to requestNotificationPermission()
 
-        if (settings.authorizationStatus == AuthorizationStatus.authorized) {
-          debugPrint('✅ FCM: User granted notification permission');
-        } else if (settings.authorizationStatus == AuthorizationStatus.provisional) {
-          debugPrint('⚠️ FCM: User granted provisional notification permission');
-        } else {
-          debugPrint('❌ FCM: User declined or has not accepted notification permission');
-          return;
-        }
-      }
 
       // Subscribe to topic for broadcast notifications
       await _messaging.subscribeToTopic('all_users');
@@ -251,6 +235,32 @@ class FCMTokenService {
       debugPrint('✅ FCM: Foreground notification displayed');
     } catch (e) {
       debugPrint('❌ FCM: Error showing foreground notification: $e');
+    }
+  }
+
+
+  /// Request permission for notifications
+  /// Call this when you want to ask the user for permission (e.g., on Home Screen)
+  static Future<void> requestNotificationPermission() async {
+    if (kIsWeb) return;
+
+    try {
+      final settings = await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+        provisional: false,
+      );
+
+      if (settings.authorizationStatus == AuthorizationStatus.authorized) {
+        debugPrint('✅ FCM: User granted notification permission');
+      } else if (settings.authorizationStatus == AuthorizationStatus.provisional) {
+        debugPrint('⚠️ FCM: User granted provisional notification permission');
+      } else {
+        debugPrint('❌ FCM: User declined or has not accepted notification permission');
+      }
+    } catch (e) {
+      debugPrint('❌ FCM: Error requesting permission: $e');
     }
   }
 }

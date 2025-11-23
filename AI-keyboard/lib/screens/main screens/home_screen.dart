@@ -3,17 +3,16 @@ import 'package:ai_keyboard/screens/legal/privacy_policy_screen.dart';
 import 'package:ai_keyboard/screens/legal/terms_of_use_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/guidance_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/language_screen.dart';
-import 'package:ai_keyboard/screens/main%20screens/notification_screen.dart';
+
 import 'package:ai_keyboard/utils/appassets.dart';
 import 'package:ai_keyboard/utils/apptextstyle.dart';
 import 'package:ai_keyboard/screens/main%20screens/upgrade_pro_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:ai_keyboard/theme/theme_v2.dart';
-import 'package:ai_keyboard/theme/theme_editor_v2.dart';
-import 'package:ai_keyboard/screens/main%20screens/chat_screen.dart';
 import 'package:ai_keyboard/screens/main%20screens/mainscreen.dart';
 import 'package:ai_keyboard/services/firebase_auth_service.dart';
 import 'package:ai_keyboard/screens/login/login_illustraion_screen.dart';
+import 'package:ai_keyboard/services/fcm_token_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -24,6 +23,15 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final FirebaseAuthService _authService = FirebaseAuthService();
+
+  @override
+  void initState() {
+    super.initState();
+    // Request notification permission when user reaches home screen
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FCMTokenService.requestNotificationPermission();
+    });
+  }
 
   Future<void> _applyTheme(KeyboardThemeV2 theme) async {
     try {

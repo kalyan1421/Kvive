@@ -1558,11 +1558,14 @@ class MainActivity : FlutterActivity() {
                                 result.error("INVALID_ARGS", "Theme payload missing", null)
                                 return@launch
                             }
+                            val themeId = payload["id"]?.toString() ?: "unknown_theme"
+                            val themeName = payload["name"]?.toString() ?: "Keyboard Theme"
                             val delivered = withKeyboardService { service ->
                                 service.applyThemeFromFlutter(payload)
                             }
                             if (!delivered) {
-                                notifyKeyboardServiceThemeChanged()
+                                // Service runs in :ime process; fall back to broadcast with V2 extras
+                                notifyKeyboardServiceThemeChangedV2(themeId, themeName, true)
                             }
                             result.success(delivered)
                         }

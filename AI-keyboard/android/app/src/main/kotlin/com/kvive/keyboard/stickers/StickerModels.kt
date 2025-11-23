@@ -1,6 +1,5 @@
 package com.kvive.keyboard.stickers
 
-import com.google.firebase.firestore.DocumentSnapshot
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -63,30 +62,6 @@ data class StickerPack(
                 featured = obj.optBoolean("featured", false),
                 tags = tags,
                 storagePath = obj.optString("storagePath").takeIf { it.isNotEmpty() }
-            )
-        }
-
-        /**
-         * Create from Firestore document
-         */
-        fun fromFirestore(doc: DocumentSnapshot): StickerPack {
-            @Suppress("UNCHECKED_CAST")
-            val tags = (doc.get("tags") as? List<String>) ?: emptyList()
-            
-            return StickerPack(
-                id = doc.id,
-                name = doc.getString("name") ?: "",
-                author = doc.getString("author") ?: "Unknown",
-                thumbnailUrl = doc.getString("thumbnailUrl") ?: "",
-                category = doc.getString("category") ?: "general",
-                version = doc.getString("version") ?: "1.0",
-                stickerCount = (doc.get("stickerCount") as? Long)?.toInt() ?: 0,
-                isInstalled = doc.getBoolean("isInstalled") ?: false,
-                installProgress = (doc.get("installProgress") as? Long)?.toInt() ?: 0,
-                description = doc.getString("description") ?: "",
-                featured = doc.getBoolean("featured") ?: false,
-                tags = tags,
-                storagePath = doc.getString("storagePath")
             )
         }
 
@@ -198,32 +173,6 @@ data class StickerData(
                 width = obj.optInt("width", 0),
                 height = obj.optInt("height", 0),
                 storagePath = obj.optString("storagePath").takeIf { it.isNotEmpty() }
-            )
-        }
-
-        /**
-         * Create from Firestore document
-         */
-        fun fromFirestore(doc: DocumentSnapshot, packId: String): StickerData {
-            @Suppress("UNCHECKED_CAST")
-            val tags = (doc.get("tags") as? List<String>) ?: emptyList()
-            @Suppress("UNCHECKED_CAST") 
-            val emojis = (doc.get("emojis") as? List<String>) ?: emptyList()
-
-            return StickerData(
-                id = doc.id,
-                packId = packId,
-                imageUrl = doc.getString("imageUrl") ?: "",
-                tags = tags,
-                emojis = emojis,
-                localPath = doc.getString("localPath"),
-                isDownloaded = doc.getBoolean("isDownloaded") ?: false,
-                usageCount = (doc.get("usageCount") as? Long)?.toInt() ?: 0,
-                lastUsed = doc.get("lastUsed") as? Long ?: 0L,
-                fileSize = doc.get("fileSize") as? Long ?: 0L,
-                width = (doc.get("width") as? Long)?.toInt() ?: 0,
-                height = (doc.get("height") as? Long)?.toInt() ?: 0,
-                storagePath = doc.getString("storagePath")
             )
         }
 

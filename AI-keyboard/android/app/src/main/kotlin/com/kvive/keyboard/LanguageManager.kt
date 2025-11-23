@@ -2,7 +2,6 @@ package com.kvive.keyboard
 
 import android.content.Context
 import com.kvive.keyboard.managers.BaseManager
-import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.*
 import io.flutter.plugin.common.MethodChannel
 import android.util.Log
@@ -53,11 +52,11 @@ class LanguageManager(context: Context) : BaseManager(context) {
         logW("Current language: $currentLanguage")
         logW("Enabled languages: $enabledLanguages")
         
-        // Auto-preload English on first launch
+        // Auto-preload English on first launch (offline assets)
         scope.launch {
             try {
                 val multilingualDict = MultilingualDictionaryImpl(context)
-                multilingualDict.autoPreloadEnglish()
+                multilingualDict.preload("en")
                 logW("🌐 Auto-preload English completed")
             } catch (e: Exception) {
                 logE("❌ Failed to auto-preload English", e)
@@ -196,8 +195,8 @@ class LanguageManager(context: Context) : BaseManager(context) {
     }
     
     /**
-     * Add a language to enabled languages with Firebase download support
-     * Downloads dictionary + transliteration before adding to enabled list
+     * Add a language to enabled languages with offline preload support
+     * Loads dictionary + transliteration before adding to enabled list
      */
     fun enableLanguage(languageCode: String, callback: ((success: Boolean, error: String?) -> Unit)? = null) {
         if (!isLanguageSupported(languageCode)) {
@@ -213,10 +212,10 @@ class LanguageManager(context: Context) : BaseManager(context) {
             return
         }
         
-        // Download language data asynchronously before enabling
+        // Preload language data offline before enabling
         scope.launch {
             try {
-                logW("🌐 Starting download for $languageCode")
+                logW("📦 Preloading offline data for $languageCode")
                 
                 // Notify Flutter of download start
                 methodChannel?.invokeMethod("languageDownloadProgress", mapOf(
@@ -225,23 +224,21 @@ class LanguageManager(context: Context) : BaseManager(context) {
                     "status" to "starting"
                 ))
                 
-                // Download dictionary data
+                // Load dictionary data
                 val multilingualDict = MultilingualDictionaryImpl(context)
-                multilingualDict.ensureLanguageAvailable(languageCode)
+                multilingualDict.preload(languageCode)
                 
                 // Preload the language into memory after successful download
-                logW("⚙️ Preloading language data for: $languageCode")
-                multilingualDict.preload(languageCode)
                 logW("✅ Language data preloaded successfully: $languageCode")
                 
                 // Update progress
                 methodChannel?.invokeMethod("languageDownloadProgress", mapOf(
                     "lang" to languageCode,
                     "progress" to 50,
-                    "status" to "downloading_transliteration"
+                    "status" to "loading_transliteration"
                 ))
                 
-                // Download transliteration if supported
+                // Load transliteration if supported (offline)
                 val supportedTranslitLangs = setOf("hi", "te", "ta")
                 if (supportedTranslitLangs.contains(languageCode)) {
                     val translitEngine = TransliterationEngine(context, languageCode)
@@ -328,10 +325,10 @@ class LanguageManager(context: Context) : BaseManager(context) {
     suspend fun checkCloudLanguageAvailable(languageCode: String): Boolean = withContext(Dispatchers.IO) {
         return@withContext try {
             val multilingualDict = MultilingualDictionaryImpl(context)
-            multilingualDict.ensureLanguageAvailable(languageCode)
+            multilingualDict.preload(languageCode)
             true
         } catch (e: Exception) {
-            logW("Cloud data not available for $languageCode: ${e.message}")
+            logW("Language data not available for $languageCode: ${e.message}")
             false
         }
     }
