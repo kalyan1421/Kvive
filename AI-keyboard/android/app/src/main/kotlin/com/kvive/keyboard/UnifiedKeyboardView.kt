@@ -4731,16 +4731,19 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 deleteRepeatRunnable = object : Runnable {
                     override fun run() {
                         if (isDeleteRepeating) {
-                            // ✅ FIX: Add sound and vibration for each repeated key press
+                            // ✅ PERFORMANCE: Reduced vibration frequency for better performance
+                            // Only vibrate every 3rd repeat to avoid lag
                             val service = (context as? AIKeyboardService)
                             service?.let {
                                 // Play sound if enabled
                                 KeyboardSoundManager.play()
-                                // Trigger vibration if repeated action vibration is enabled
-                                it.triggerRepeatedKeyVibration()
+                                // Trigger vibration less frequently (every ~240ms instead of every 80ms)
+                                if (System.currentTimeMillis() % 3 == 0L) {
+                                    it.triggerRepeatedKeyVibration()
+                                }
                             }
                             onKeyCallback?.invoke(key.code, intArrayOf(key.code))
-                            deleteRepeatHandler.postDelayed(this, 50L) // Repeat every 50ms
+                            deleteRepeatHandler.postDelayed(this, 80L) // ✅ PERFORMANCE: Increased from 50ms to 80ms
                         }
                     }
                 }

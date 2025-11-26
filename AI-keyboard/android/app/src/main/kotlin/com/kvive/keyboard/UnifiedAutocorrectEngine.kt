@@ -2,13 +2,17 @@ package com.kvive.keyboard
 
 import android.content.Context
 import android.util.LruCache
+import com.kvive.keyboard.symspell.SymSpell
+import com.kvive.keyboard.symspell.SymSpellLoader
+import com.kvive.keyboard.symspell.Verbosity
+import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import com.kvive.keyboard.trie.MappedTrieDictionary
 import java.util.concurrent.ConcurrentHashMap
-import com.kvive.keyboard.utils.LogUtil
 import kotlin.math.*
 
 /**
@@ -64,8 +68,12 @@ class UnifiedAutocorrectEngine(
     companion object {
         private const val TAG = "UnifiedAutocorrectEngine"
         private val INDIC_LANGUAGES = listOf("hi", "te", "ta", "ml", "bn", "gu", "kn", "pa", "ur")
-
         private val DEFAULT_FALLBACKS = listOf("I", "The", "You", "We", "It", "Thanks")
+        
+        // ========== TIMING-BASED AUTOCORRECT THRESHOLDS (Gboard Rule 2) ==========
+        const val FAST_TYPING_THRESHOLD_MS = 100L  // Skip autocorrect if faster than this per key
+        const val KEYPRESS_HISTORY_SIZE = 5        // Look at last 5 keypresses
+        const val SPACE_COMMIT_THRESHOLD_MS = 80L  // If space pressed within 80ms of last key → commit typed word
     }
 
     // Thread-safe cache for suggestions
@@ -73,9 +81,20 @@ class UnifiedAutocorrectEngine(
     
     // Current language resources
     @Volatile
-    private var currentLanguage: String = "en"
+    var currentLanguage: String = "en"  // ✅ Made public for FIX 3.3 language comparison
+        private set  // Only this class can modify it
     @Volatile
     private var languageResources: LanguageResources? = null
+    @Volatile
+    private var trieDictionary: MappedTrieDictionary? = null
+    
+    // ========== TIMING-BASED AUTOCORRECT (Gboard Rule 2) ==========
+    // Track keypress timing for fast-typing detection
+    @Volatile
+    private var lastKeypressTime: Long = 0L
+    
+    @Volatile
+    private var recentKeypressTimes: MutableList<Long> = mutableListOf()
     
     // ========== NEW: Phase 1 Components ==========
     
@@ -109,6 +128,8 @@ class UnifiedAutocorrectEngine(
     private val keyboardLayouts = ConcurrentHashMap<String, Map<Char, Pair<Float, Float>>>()
     @Volatile
     private var currentLayoutCoordinates: Map<Char, Pair<Float, Float>> = defaultKeyLayout
+
+    private val symSpellCache = ConcurrentHashMap<String, SymSpell>()
     
     private data class SwipeFeedback(var accepted: Int = 0, var rejected: Int = 0)
     private val swipeFeedback = ConcurrentHashMap<String, SwipeFeedback>()
@@ -116,9 +137,45 @@ class UnifiedAutocorrectEngine(
     private fun activeLayout(): Map<Char, Pair<Float, Float>> {
         return if (currentLayoutCoordinates.isEmpty()) defaultKeyLayout else currentLayoutCoordinates
     }
+
+    private fun loadMappedTrie(lang: String) {
+        trieDictionary = try {
+            MappedTrieDictionary(context, lang)
+        } catch (e: Exception) {
+            Log.e(TAG, "Binary dictionary not found for $lang, falling back to LanguageResources maps", e)
+            null
+        }
+    }
+
+    private fun getWordFrequency(word: String, resources: LanguageResources? = languageResources): Int {
+        trieDictionary?.let { return it.getFrequency(word) }
+        return resources?.words?.get(word) ?: 0
+    }
+
+    private fun hasWord(word: String, resources: LanguageResources? = languageResources): Boolean =
+        getWordFrequency(word, resources) > 0
+
+    private fun getPrefixCandidates(prefix: String, limit: Int, resources: LanguageResources? = languageResources): List<Pair<String, Int>> {
+        val normalized = prefix.lowercase()
+        trieDictionary?.let { trie ->
+            val matches = trie.getSuggestions(normalized, limit)
+            return matches.map { it to trie.getFrequency(it) }
+        }
+
+        val words = resources?.words ?: return emptyList()
+        return words.entries
+            .asSequence()
+            .filter { it.key.startsWith(normalized) }
+            .take(limit)
+            .map { it.key to it.value }
+            .toList()
+    }
     
     // Suggestion callback for real-time suggestion updates
     private var suggestionCallback: ((List<String>) -> Unit)? = null
+
+    @Volatile
+    private var cursorMoved = false
 
     private fun isBlacklisted(original: String, corrected: String): Boolean {
         val manager = userDictionaryManager ?: return false
@@ -128,15 +185,32 @@ class UnifiedAutocorrectEngine(
     /**
      * Set language and resources (NEW UNIFIED API)
      * This is the single entry point for language switching
+     * 🔥 PERFORMANCE: Prevents reloading same language multiple times
      */
     fun setLanguage(lang: String, resources: LanguageResources) {
+        // 🔥 CRITICAL PERFORMANCE FIX: Don't reload if already loaded
+        if (currentLanguage == lang && languageResources != null) {
+            return  // ✅ Prevents dictionary reload spam
+        }
+        
         currentLanguage = lang
         languageResources = resources
+        loadMappedTrie(lang)
         currentLayoutCoordinates = keyboardLayouts[lang] ?: defaultKeyLayout
-        suggestionCache.evictAll() // Clear cache when language changes
-        LogUtil.d(TAG, "🌐 Firebase language activated: $lang")
-        LogUtil.d(TAG, "📖 Loaded $lang: words=${resources.words.size}, bigrams=${resources.bigrams.size}, trigrams=${resources.trigrams.size}")
-        LogUtil.d(TAG, "✅ UnifiedAutocorrectEngine ready for $lang")
+        
+        // 🔥 PERFORMANCE FIX: Only load SymSpell if NOT already cached
+        if (!symSpellCache.containsKey(lang)) {
+            symSpellCache[lang] = SymSpellLoader.load(context, lang, mergeSymSpellWords(resources))
+            Log.d(TAG, "✅ SymSpell loaded for '$lang' (${resources.words.size} words)")
+        } else {
+            Log.d(TAG, "✅ SymSpell already cached for '$lang' - reusing")
+        }
+        
+        // 🔥 FIX 3.2 - Only clear cache when language ACTUALLY changes (not on reload)
+        // suggestionCache.evictAll() - REMOVED, let cache persist for better performance
+        
+        // ✅ PERFORMANCE: Reduced logging to once per language load
+        Log.d(TAG, "✅ Language '$lang' loaded: ${resources.words.size} words, trie=${trieDictionary != null}")
     }
     
     /**
@@ -150,8 +224,60 @@ class UnifiedAutocorrectEngine(
         if (language == currentLanguage) {
             currentLayoutCoordinates = filtered
         }
-        suggestionCache.evictAll()
-        LogUtil.d(TAG, "🧭 Updated swipe layout for $language: keys=${filtered.size}")
+        // 🔥 FIX 3.2 - Don't clear cache on layout update, not necessary
+        // suggestionCache.evictAll() - REMOVED
+        Log.d(TAG, "🧭 Updated swipe layout for $language: keys=${filtered.size}")
+    }
+
+    // In UnifiedAutocorrectEngine.kt
+
+private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
+    val merged = HashMap<String, Int>()
+    merged.putAll(resources.words)
+
+    // 🚀 FORCE HYDRATION: Ensure we get words even if .txt is missing
+    if (merged.isEmpty()) {
+        if (trieDictionary != null) {
+             Log.d(TAG, "⚠️ .txt dictionary missing. Extracting 15,000 words from .bin...")
+             val topWords = trieDictionary?.getTopFrequentWords(15000) ?: emptyMap()
+             merged.putAll(topWords)
+             
+             // If getTopFrequentWords doesn't exist, use the deeper a-z iteration
+             if (merged.isEmpty()) {
+                Log.d(TAG, "⚠️ Using fallback a-z iteration from Binary Trie...")
+                val seed = mutableMapOf<String, Int>()
+                // Iterate a-z but deeper, and don't break early
+                for (ch in 'a'..'z') {
+                    // Fetch top 500 words per letter instead of 16
+                    val words = trieDictionary?.getSuggestions(ch.toString(), 500) ?: emptyList()
+                    words.forEach { word ->
+                        val freq = trieDictionary?.getFrequency(word) ?: 1
+                        seed[word] = freq
+                    }
+                }
+                merged.putAll(seed)
+             }
+        } else {
+             // 🚨 EMERGENCY FALLBACK: If both .txt and .bin are missing, add basic words so engine doesn't die
+             Log.e(TAG, "❌ NO DICTIONARY FOUND! Using emergency fallback words.")
+             listOf("the", "and", "hello", "this", "is", "test", "that", "you", "for", "are", "with", "have", "will", "can", "from", "they", "been", "would", "there", "could").forEach { merged[it] = 255 }
+        }
+    }
+
+    resources.userWords.forEach { merged.putIfAbsent(it, 1) }
+    
+    // ✅ PERFORMANCE: Log removed (was printing on every suggestion update)
+    return merged
+}
+
+    private fun currentSymSpell(): SymSpell? {
+        // 🔥 CRITICAL PERFORMANCE FIX: NEVER load SymSpell here - only return cached
+        // SymSpell should ONLY be loaded in setLanguage(), not during typing
+        val cached = symSpellCache[currentLanguage]
+        if (cached == null) {
+            Log.w(TAG, "⚠️ SymSpell not cached for $currentLanguage - should have been loaded in setLanguage()")
+        }
+        return cached
     }
     
     /**
@@ -167,7 +293,7 @@ class UnifiedAutocorrectEngine(
      */
     fun getSuggestionsFor(prefix: String): List<String> {
         if (prefix.isBlank()) return emptyList()
-        LogUtil.d(TAG, "🔍 Getting suggestions for prefix: '$prefix'")
+        Log.d(TAG, "🔍 Getting suggestions for prefix: '$prefix'")
         val suggestions = suggestForTyping(prefix, emptyList())
         return suggestions.map { it.text }
     }
@@ -178,7 +304,7 @@ class UnifiedAutocorrectEngine(
      */
     fun getNextWordPredictions(context: List<String>): List<String> {
         if (context.isEmpty()) return emptyList()
-        LogUtil.d(TAG, "🔮 Getting next word predictions for: $context")
+        Log.d(TAG, "🔮 Getting next word predictions for: $context")
         val predictions = nextWord(context, 3)
         return predictions.map { it.text }
     }
@@ -186,109 +312,362 @@ class UnifiedAutocorrectEngine(
     /**
      * Get typing suggestions for partial input (NEW UNIFIED API with Phase 1 enhancements)
      */
-    fun suggestForTyping(prefix: String, context: List<String>): List<Suggestion> {
+    fun suggestForTyping(prefix: String, contextWords: List<String>): List<Suggestion> {
         if (prefix.isBlank()) return emptyList()
         val resources = languageResources ?: return emptyList()
-        
-        val cacheKey = "$prefix:typing:${context.joinToString(",")}"
-        suggestionCache.get(cacheKey)?.let { return it }
-        
+
+        val lower = prefix.lowercase()
         val suggestions = mutableListOf<Suggestion>()
-        
-        try {
-            LogUtil.d(TAG, "✍️ Getting typing suggestions for prefix '$prefix' (Firebase data)")
-            
-            // Find candidate words that start with prefix
-            val candidates = resources.words.entries
-                .filter { it.key.lowercase().startsWith(prefix.lowercase()) }
-                .take(20) // Limit candidates for performance
-            
-            candidates.forEach { (word, freq) ->
-                val editDistance = getEditDistanceWithProximity(prefix, word)
-                val score = calculateUnifiedScore(word, prefix, editDistance, context, SuggestionSource.TYPING)
-                suggestions.add(Suggestion(word, score, SuggestionSource.TYPING))
+
+        // 1 - SymSpell candidates (fast corrections only)
+        val symResults = currentSymSpell()?.lookup(lower, Verbosity.TOP, maxEditDistance = 2) ?: emptyList()
+        val correctionSuggestions = buildSymSpellSuggestions(prefix, lower, contextWords, resources, symResults)
+        suggestions.addAll(correctionSuggestions)
+
+        // 2 - Dictionary prefix matches (typing suggestions, no auto-commit)
+        val prefixMatches = getPrefixCandidates(lower, 12, resources)
+            .map { (candidate, freq) ->
+                val score = computeFinalScore(
+                    symspellScore = 0.0,
+                    frequency = freq,
+                    distance = getEditDistance(lower, candidate),
+                    candidate = candidate,
+                    input = lower,
+                    contextWords = contextWords,
+                    resources = resources
+                )
+                Suggestion(
+                    text = candidate,
+                    score = score,
+                    source = SuggestionSource.TYPING,
+                    isAutoCommit = false
+                )
             }
-            
-            // ========== Phase 1: Context-Aware Rescoring ==========
-            val contextBoosted = if (context.isNotEmpty()) {
-                val prev = context.last().lowercase()
-                suggestions.map { suggestion ->
-                    var boost = 1.0
-                    
-                    // Bigram boost: check if this word commonly follows previous word
-                    if (resources.bigrams.containsKey(Pair(prev, suggestion.text.lowercase()))) {
-                        boost = 1.3
-                        LogUtil.d(TAG, "📈 Context boost for '${suggestion.text}' after '$prev'")
-                    }
-                    
-                    // Trigram boost: check if we have 2+ context words
-                    if (context.size >= 2) {
-                        val prev2 = context[context.size - 2].lowercase()
-                        if (resources.trigrams.containsKey(Triple(prev2, prev, suggestion.text.lowercase()))) {
-                            boost = 1.5
-                            LogUtil.d(TAG, "📈 Trigram boost for '${suggestion.text}' after '$prev2 $prev'")
-                        }
-                    }
-                    
-                    suggestion.copy(score = suggestion.score * boost)
+            .toList()
+        suggestions.addAll(prefixMatches)
+
+        // 3 - User dictionary (keep as typing suggestions)
+        userDictionaryManager?.getTopWords(20)?.forEach { word ->
+            if (word.startsWith(lower)) {
+                val freq = getWordFrequency(word, resources).coerceAtLeast(1)
+                val score = computeFinalScore(
+                    symspellScore = 0.0,
+                    frequency = freq,
+                    distance = 0,
+                    candidate = word,
+                    input = lower,
+                    contextWords = contextWords,
+                    resources = resources
+                )
+                suggestions.add(
+                    Suggestion(
+                        text = word,
+                        score = score,
+                        source = SuggestionSource.USER
+                    )
+                )
+            }
+        }
+
+        // 4 - Next word predictor (LM) - simplified for performance
+        if (contextWords.isNotEmpty()) {
+            val lastWord = contextWords.lastOrNull()?.lowercase()
+            if (lastWord != null) {
+                val bigramPredictions = resources.bigrams
+                    .filterKeys { it.first == lastWord }
+                    .entries
+                    .sortedByDescending { it.value }
+                    .take(2)
+                    .map { it.key.second }
+                
+                bigramPredictions.forEach { word ->
+                    val score = computeFinalScore(
+                        symspellScore = 0.0,
+                        frequency = getWordFrequency(word, resources),
+                        distance = getEditDistance(lower, word),
+                        candidate = word,
+                        input = lower,
+                        contextWords = contextWords,
+                        resources = resources
+                    )
+                    suggestions.add(
+                        Suggestion(
+                            text = word,
+                            score = score,
+                            source = SuggestionSource.LM_BIGRAM
+                        )
+                    )
                 }
-            } else {
-                suggestions
             }
+        }
+
+        // 5 - Sort and limit
+        return suggestions
+            .distinctBy { it.text }
+            .sortedByDescending { it.score }
+            .take(6)
+    }
+
+    private fun buildSymSpellSuggestions(
+        originalInput: String,
+        lower: String,
+        contextWords: List<String>,
+        resources: LanguageResources,
+        symResults: List<SymSpell.SymSpellResult>
+    ): List<Suggestion> {
+        if (symResults.isEmpty()) return emptyList()
+        if (shouldBlockAutocorrect(originalInput, resources, contextWords)) return emptyList()
+
+        val inputFreq = getWordFrequency(lower, resources)
+        val nextScore = symResults.getOrNull(1)?.score ?: Double.NEGATIVE_INFINITY
+        val top = symResults.first()
+
+        val autoCommitAllowed = top.distance == 1 &&
+            top.frequency >= (if (inputFreq <= 0) 2 else inputFreq * 2) &&
+            top.score >= nextScore + 0.15 &&
+            !(originalInput.firstOrNull()?.isUpperCase() ?: false)
+
+        return symResults.take(3).mapIndexed { index, res ->
+            val finalScore = computeFinalScore(
+                symspellScore = res.score,
+                frequency = res.frequency,
+                distance = res.distance,
+                candidate = res.term,
+                input = lower,
+                contextWords = contextWords,
+                resources = resources
+            )
+            Suggestion(
+                text = res.term,
+                score = finalScore,
+                source = SuggestionSource.CORRECTION,
+                isAutoCommit = index == 0 && autoCommitAllowed,
+                confidence = res.score
+            )
+        }
+    }
+
+    private fun computeFinalScore(
+        symspellScore: Double,
+        frequency: Int,
+        distance: Int,
+        candidate: String,
+        input: String,
+        contextWords: List<String>,
+        resources: LanguageResources
+    ): Double {
+        val freqScore = ln(frequency.toDouble() + 1)
+        val maxLen = max(input.length, candidate.length).coerceAtLeast(1)
+        val spatialDist = getEditDistanceWithProximity(input, candidate)
+        val keyboardDistanceScore = 1.0 - (spatialDist / maxLen.toDouble())
+        val bigramScore = contextWords.lastOrNull()?.let { prev ->
+            val freq = resources.bigrams[Pair(prev.lowercase(), candidate.lowercase())] ?: 0
+            ln(freq.toDouble() + 1)
+        } ?: 0.0
+
+        return (symspellScore * 0.55) +
+            (freqScore * 0.30) +
+            (keyboardDistanceScore * 0.10) +
+            (bigramScore * 0.05)
+    }
+    
+    private fun hasSymbols(word: String): Boolean {
+        return word.any { !it.isLetter() && it != '\'' }
+    }
+
+    private fun containsUrlOrEmail(word: String): Boolean {
+        val lowered = word.lowercase()
+        return lowered.contains("@") ||
+            lowered.contains(".com") ||
+            lowered.contains(".net") ||
+            lowered.contains(".in") ||
+            lowered.contains("://")
+    }
+
+    private fun containsEmoji(word: String): Boolean {
+        return word.any { ch ->
+            val type = Character.getType(ch)
+            type == Character.SURROGATE.toInt() ||
+                type == Character.OTHER_SYMBOL.toInt() ||
+                runCatching { Character.getName(ch.code)?.contains("EMOJI", ignoreCase = true) == true }.getOrDefault(false)
+        }
+    }
+
+    private fun shouldBlockAutocorrect(
+        word: String,
+        resources: LanguageResources,
+        contextWords: List<String>
+    ): Boolean {
+        val lower = word.lowercase()
+        if (word.length < 2) return true
+        
+        // ✅ DEBUGGING: Find out WHICH check is blocking it
+        val isInData = hasWord(lower, resources)
+        val isInCorrections = resources.corrections.containsKey(lower)
+        
+        if (isInData && !isInCorrections) {
+            Log.d(TAG, "🚫 Blocked: '$word' is in dictionary and NOT in corrections list")
+            return true 
+        }
+        
+        if (hasSymbols(word) || word.any { it.isDigit() }) return true
+        // ... other checks ...
+
+        return false
+    }
+
+    /**
+     * Get best autocorrect suggestion (NEW UNIFIED API)
+     * Implements Gboard-style safety filters and SymSpell-first pipeline.
+     */
+    fun autocorrect(input: String, contextWords: List<String>): Suggestion? {
+        val resources = languageResources ?: return null
+        val lower = input.lowercase()
+        
+        Log.d(TAG, "🔍 Autocorrect called for: '$input'")
+
+        if (shouldBlockAutocorrect(input, resources, contextWords)) {
+            Log.d(TAG, "🚫 Autocorrect blocked for: '$input'")
+            return null
+        }
+        if (userDictionaryManager?.isBlacklisted(input, input) == true) {
+            Log.d(TAG, "🚫 Word blacklisted: '$input'")
+            return null
+        }
+
+        val symResults = currentSymSpell()?.lookup(lower, Verbosity.TOP, maxEditDistance = 2) ?: emptyList()
+        if (symResults.isEmpty()) {
+            Log.d(TAG, "🔍 No SymSpell results for: '$input'")
+            return null
+        }
+
+        val inputFreq = getWordFrequency(lower, resources)
+        val top = symResults.first()
+        val nextScore = symResults.getOrNull(1)?.score ?: Double.NEGATIVE_INFINITY
+
+        Log.d(TAG, "🔍 Best suggestion: '${top.term}' (distance=${top.distance}, freq=${top.frequency}, score=${top.score})")
+
+        val frequencySatisfied = top.frequency >= (if (inputFreq <= 0) 2 else inputFreq * 2)
+        val autoCommitAllowed = top.distance == 1 &&
+            frequencySatisfied &&
+            top.score >= nextScore + 0.15 &&
+            !input.firstOrNull()?.isUpperCase().orFalse()
+
+        val finalScore = computeFinalScore(
+            symspellScore = top.score,
+            frequency = top.frequency,
+            distance = top.distance,
+            candidate = top.term,
+            input = lower,
+            contextWords = contextWords,
+            resources = resources
+        )
+
+        val suggestion = Suggestion(
+            text = top.term,
+            score = finalScore,
+            source = SuggestionSource.CORRECTION,
+            isAutoCommit = autoCommitAllowed,
+            confidence = top.score
+        )
+        
+        Log.d(TAG, "✅ Autocorrect suggestion: '$input' → '${suggestion.text}' (autoCommit=${suggestion.isAutoCommit})")
+        return suggestion
+    }
+    
+    // ========== TIMING-BASED AUTOCORRECT METHODS (Gboard Rule 2) ==========
+    
+    /**
+     * Record a keypress event (call this on each key typed)
+     * Used for fast-typing detection
+     */
+    fun recordKeypress() {
+        val now = System.currentTimeMillis()
+        lastKeypressTime = now
+        
+        synchronized(recentKeypressTimes) {
+            recentKeypressTimes.add(now)
+            // Keep only recent keypresses
+            while (recentKeypressTimes.size > KEYPRESS_HISTORY_SIZE) {
+                recentKeypressTimes.removeAt(0)
+            }
+        }
+    }
+
+    fun markCursorMoved() {
+        cursorMoved = true
+    }
+
+    fun resetCursorMovedFlag() {
+        cursorMoved = false
+    }
+    
+    /**
+     * Check if user is typing fast (Gboard behavior: skip autocorrect for fast typing)
+     * @return true if user is typing fast and autocorrect should be skipped
+     */
+    fun isTypingFast(): Boolean {
+        synchronized(recentKeypressTimes) {
+            if (recentKeypressTimes.size < 3) return false  // Need at least 3 keypresses to determine
             
-            // Sort by boosted score and take top suggestions
-            val result = contextBoosted
-                .sortedByDescending { it.score }
-                .take(5)
+            // Calculate average interval between keypresses
+            var totalInterval = 0L
+            for (i in 1 until recentKeypressTimes.size) {
+                totalInterval += recentKeypressTimes[i] - recentKeypressTimes[i - 1]
+            }
+            val avgInterval = totalInterval / (recentKeypressTimes.size - 1)
             
-            LogUtil.d(TAG, "📊 Unified typing suggestions with context: ${result.map { it.text }}")
-            suggestionCache.put(cacheKey, result)
-            return result
-            
-        } catch (e: Exception) {
-            LogUtil.e(TAG, "Error getting typing suggestions for '$prefix'", e)
-            return emptyList()
+            val isFast = avgInterval < FAST_TYPING_THRESHOLD_MS
+            if (isFast) {
+                Log.d(TAG, "⚡ Fast typing detected: avg interval=${avgInterval}ms < ${FAST_TYPING_THRESHOLD_MS}ms")
+            }
+            return isFast
         }
     }
     
     /**
-     * Get best autocorrect suggestion (NEW UNIFIED API)
+     * Check if space was pressed quickly after last character (commit typed word, no correction)
+     * @return true if space was pressed fast and autocorrect should be skipped
      */
-    fun autocorrect(input: String, context: List<String>): Suggestion? {
-        if (input.isBlank()) return null
-        val resources = languageResources ?: return null
-        
-        // Priority 1: Check corrections map
-        val inputLower = input.lowercase()
-        LogUtil.d(TAG, "🔧 Autocorrect: checking '$inputLower' in corrections map (${resources.corrections.size} entries)")
-        
-        resources.corrections[inputLower]?.let { correction ->
-            if (isBlacklisted(input, correction)) {
-                LogUtil.d(TAG, "🚫 Correction blacklisted: '$inputLower' → '$correction'")
-            } else {
-                val score = scoringWeights.correctionWeight * 4.0 // High priority for predefined corrections
-                LogUtil.d(TAG, "✅ Correction found: '$inputLower' → '$correction'")
-                return Suggestion(correction, score, SuggestionSource.CORRECTION, isAutoCommit = true)
-            }
+    fun isSpacePressedFast(): Boolean {
+        val now = System.currentTimeMillis()
+        val interval = now - lastKeypressTime
+        val isFast = interval < SPACE_COMMIT_THRESHOLD_MS
+        if (isFast) {
+            Log.d(TAG, "⚡ Fast space: ${interval}ms < ${SPACE_COMMIT_THRESHOLD_MS}ms → skip autocorrect")
         }
-        
-        LogUtil.d(TAG, "⚠️ No correction found for '$inputLower' in map")
-        
-        // Priority 2: Check typing suggestions and return best if score is high enough
-        val suggestions = suggestForTyping(input, context)
-        val candidate = suggestions.firstOrNull { !isBlacklisted(input, it.text) }
-        if (candidate != null && candidate.score > 2.0) {
-            LogUtil.d(TAG, "✅ Using suggestion '${candidate.text}' for '$input' (score=${candidate.score})")
-            return candidate.copy(isAutoCommit = true)
-        } else if (candidate == null && suggestions.isNotEmpty()) {
-            LogUtil.d(TAG, "🚫 All suggestions for '$input' are blacklisted; skipping autocorrect")
-        }
-        
-        return null
+        return isFast
     }
+    
+    /**
+     * Autocorrect with timing check (Gboard-style)
+     * Use this instead of autocorrect() to respect fast-typing behavior
+     */
+    fun autocorrectWithTiming(input: String, context: List<String>): Suggestion? {
+        // If user is typing fast or pressed space quickly, skip autocorrect
+        if (isTypingFast() || isSpacePressedFast()) {
+            Log.d(TAG, "⚡ Skipping autocorrect for '$input' due to fast typing")
+            return null
+        }
+        return autocorrect(input, context)
+    }
+    
+    /**
+     * Clear timing history (call when input field changes or word is committed)
+     */
+    fun clearTimingHistory() {
+        synchronized(recentKeypressTimes) {
+            recentKeypressTimes.clear()
+        }
+        lastKeypressTime = 0L
+        cursorMoved = false
+    }
+    
+    // OLD findSpellingCorrections method removed - now using SymSpell for fast corrections
     
     /**
      * Get next word predictions (NEW UNIFIED API with Phase 1 ML predictor)
+     * 🔥 PERFORMANCE: This is expensive - should only run after SPACE, not during typing
      */
     fun nextWord(context: List<String>, k: Int = 3): List<Suggestion> {
         if (context.isEmpty()) return emptyList()
@@ -300,7 +679,7 @@ class UnifiedAutocorrectEngine(
         val suggestions = mutableListOf<Suggestion>()
         
         try {
-            LogUtil.d(TAG, "🔮 Getting next word predictions for context: $context (Firebase data + ML)")
+            // Log removed for performance (was firing too frequently)
             
             // Use Katz-backoff: quad→tri→bi→uni
             val contextWords = context.takeLast(3) // Max 3-word context for quadgrams
@@ -339,37 +718,40 @@ class UnifiedAutocorrectEngine(
             }
             
             // ========== Phase 1: Async NextWordPredictor Integration ==========
+            // 🔥 PERFORMANCE FIX: Disabled ML predictor during typing - too expensive
+            // This should only run after SPACE key, not during word typing
             // Launch async prediction that can update UI when ready
+            /* DISABLED FOR PERFORMANCE
             CoroutineScope(Dispatchers.Default).launch {
                 try {
                     val mlPredictions = nextWordPredictor.predictNext(contextWords, k)
-                    LogUtil.d(TAG, "🤖 ML predictions: $mlPredictions")
                     // These predictions can be used to update the UI asynchronously
                     // or merged with existing suggestions in Phase 2
                 } catch (e: Exception) {
-                    LogUtil.e(TAG, "Error getting ML predictions", e)
+                    Log.e(TAG, "Error getting ML predictions", e)
                 }
             }
+            */
             
             val result = suggestions
                 .sortedByDescending { it.score }
                 .take(k)
 
             if (result.isNotEmpty()) {
-                LogUtil.d(TAG, "📊 Next word predictions: ${result.map { it.text }}")
+                // Log removed for performance
                 suggestionCache.put(cacheKey, result)
                 return result
             }
 
             val fallback = fallbackSuggestions(context, k)
             if (fallback.isNotEmpty()) {
-                LogUtil.d(TAG, "📊 Next word fallback predictions: ${fallback.map { it.text }}")
+                // Log removed for performance
                 suggestionCache.put(cacheKey, fallback)
             }
             return fallback
             
         } catch (e: Exception) {
-            LogUtil.e(TAG, "Error getting next word predictions", e)
+            Log.e(TAG, "Error getting next word predictions", e)
             return fallbackSuggestions(context, k)
         }
     }
@@ -469,7 +851,7 @@ class UnifiedAutocorrectEngine(
         suggestionCache.get(cacheKey)?.let { return it }
         
         try {
-            LogUtil.d(TAG, "🔄 Getting swipe suggestions from Firebase data + ML decoder")
+            Log.d(TAG, "🔄 Getting swipe suggestions from Firebase data + ML decoder")
             
             // ========== Phase 1: ML-Based Swipe Decoding ==========
             // Use proper path decoding with metrics (primary decoder)
@@ -482,15 +864,15 @@ class UnifiedAutocorrectEngine(
             
             // ML decoder confidence boost (Phase 2: will use for ranking boost, not primary)
             val mlCandidates = swipeDecoderML.decode(path)
-            LogUtil.d(TAG, "🤖 ML decoder candidates: ${mlCandidates.take(5)}")
+            Log.d(TAG, "🤖 ML decoder candidates: ${mlCandidates.take(5)}")
             
-            LogUtil.d(TAG, "✅ Swipe candidates (ML + Geometric): ${result.map { "${it.text}(${String.format("%.2f", it.score)})" }.joinToString(", ")}")
+            Log.d(TAG, "✅ Swipe candidates (ML + Geometric): ${result.map { "${it.text}(${String.format("%.2f", it.score)})" }.joinToString(", ")}")
             
             suggestionCache.put(cacheKey, result)
             return result
             
         } catch (e: Exception) {
-            LogUtil.e(TAG, "Error getting swipe suggestions", e)
+            Log.e(TAG, "Error getting swipe suggestions", e)
             return emptyList()
         }
     }
@@ -507,12 +889,12 @@ class UnifiedAutocorrectEngine(
             // Get suggestions using existing logic
             val suggestions = suggestForSwipe(swipePath, emptyList())
             
-            LogUtil.d(TAG, "🔄 Swipe suggestions for sequence $sequence: ${suggestions.map { it.text }}")
+            Log.d(TAG, "🔄 Swipe suggestions for sequence $sequence: ${suggestions.map { it.text }}")
             
             return suggestions.map { it.text }
             
         } catch (e: Exception) {
-            LogUtil.e(TAG, "Error in simplified suggestForSwipe", e)
+            Log.e(TAG, "Error in simplified suggestForSwipe", e)
             return emptyList()
         }
     }
@@ -552,7 +934,7 @@ class UnifiedAutocorrectEngine(
             if (userFreq > 0) {
                 val personalBoost = ln(userFreq.toDouble() + 1) * 0.5
                 score += personalBoost
-                LogUtil.d(TAG, "👤 Personal boost for '$candidate': +$personalBoost (used $userFreq times)")
+                Log.d(TAG, "👤 Personal boost for '$candidate': +$personalBoost (used $userFreq times)")
             }
         }
         
@@ -567,7 +949,7 @@ class UnifiedAutocorrectEngine(
         }
         
         // Word frequency boost (base signal) - using dynamic weight
-        val freq = resources.words[candidate] ?: Int.MAX_VALUE
+        val freq = getWordFrequency(candidate, resources).let { if (it == 0) Int.MAX_VALUE else it }
         score += ln(1.0 / (freq + 1)) * scoringWeights.frequencyWeight // Lower frequency rank = higher score
         
         // Phase 1: Context-aware boost
@@ -645,12 +1027,81 @@ class UnifiedAutocorrectEngine(
     }
     
     /**
-     * Calculate edit distance with keyboard proximity weighting
+     * Calculate Euclidean distance between two keys on the normalized layout.
+     * Returns 0.0 if same key, 1.0 if far, ~0.1-0.2 if neighbors.
      */
-    private fun getEditDistanceWithProximity(input: String, candidate: String): Int {
-        // For now, use standard edit distance
-        // TODO: Add keyboard proximity weighting
-        return getEditDistance(input, candidate)
+    private fun getKeyDistance(char1: Char, char2: Char): Double {
+        if (char1 == char2) return 0.0
+
+        val layout = activeLayout()
+        // High penalty (1.0) if key is not in layout (e.g., symbols vs letters)
+        val pos1 = layout[char1] ?: return 1.0
+        val pos2 = layout[char2] ?: return 1.0
+
+        val dx = pos1.first - pos2.first
+        val dy = pos1.second - pos2.second
+        return sqrt(dx * dx + dy * dy).toDouble()
+    }
+
+    /**
+     * Spatial Edit Distance.
+     * Costs are determined by physical distance on the keyboard.
+     */
+    private fun getSpatialEditDistance(source: String, target: String): Double {
+        val n = source.length
+        val m = target.length
+        if (n == 0) return m.toDouble()
+        if (m == 0) return n.toDouble()
+
+        // Use 2 rows to save memory
+        var prevRow = DoubleArray(m + 1)
+        var currRow = DoubleArray(m + 1)
+
+        for (j in 0..m) prevRow[j] = j.toDouble()
+
+        for (i in 1..n) {
+            currRow[0] = i.toDouble()
+            val sChar = source[i - 1]
+
+            for (j in 1..m) {
+                val tChar = target[j - 1]
+
+                // COST LOGIC:
+                // If keys are physically close (distance < 0.18), substitution cost is LOW (0.4).
+                // If keys are far, substitution cost is HIGH (1.0).
+                val cost = if (sChar == tChar) {
+                    0.0
+                } else {
+                    val dist = getKeyDistance(sChar, tChar)
+                    if (dist < 0.18) 0.4 else 1.0
+                }
+
+                currRow[j] = minOf(
+                    prevRow[j] + 1.0,       // Deletion
+                    currRow[j - 1] + 1.0,   // Insertion
+                    prevRow[j - 1] + cost   // Substitution (Spatial)
+                )
+
+                // Transposition Check (swapping adjacent chars: 'hte' -> 'the')
+                if (i > 1 && j > 1 && source[i-1] == target[j-2] && source[i-2] == target[j-1]) {
+                     currRow[j] = minOf(currRow[j], prevRow[j-2] + 0.4) // Low cost for transposition
+                }
+            }
+            // Swap rows
+            val temp = prevRow
+            prevRow = currRow
+            currRow = temp
+        }
+
+        return prevRow[m]
+    }
+
+    private fun getEditDistanceWithProximity(input: String, candidate: String): Double {
+        // If no layout loaded, fallback to standard int distance
+        if (currentLayoutCoordinates.isEmpty()) {
+            return getEditDistance(input, candidate).toDouble()
+        }
+        return getSpatialEditDistance(input, candidate)
     }
     
     // ========== N-GRAM PREDICTION HELPERS ==========
@@ -707,25 +1158,22 @@ class UnifiedAutocorrectEngine(
         if (path.points.size < 2) return emptyList()
         
         try {
-            LogUtil.d(TAG, "[Swipe] Decoding path with ${path.points.size} points")
+            Log.d(TAG, "[Swipe] Decoding path with ${path.points.size} points")
             
             // 1) From points → most-likely key sequence (and alternates per point)
             val lattice: List<List<Char>> = candidatesForEachPoint(path.points, radiusPx = 0.15f)
             val latticeSizes = lattice.map { it.size }
-            LogUtil.d(TAG, "[Swipe] lattice sizes: $latticeSizes points=${path.points.size}")
+            Log.d(TAG, "[Swipe] lattice sizes: $latticeSizes points=${path.points.size}")
             
             // 2) Build fuzzy prefixes from the lattice (beam search over 8-15 steps)
             val fuzzyPrefixes: List<String> = beamDecode(lattice, beamWidth = 8, maxLen = 15)
-            LogUtil.d(TAG, "[Swipe] beam top prefixes: ${fuzzyPrefixes.take(8).joinToString(", ")}")
+            Log.d(TAG, "[Swipe] beam top prefixes: ${fuzzyPrefixes.take(8).joinToString(", ")}")
             
             // 3) Query dictionary with those prefixes (NOT common_words), merge unique words
             val raw = mutableSetOf<String>()
             for (p in fuzzyPrefixes) {
                 if (p.length >= 2) { // Only meaningful prefixes
-                    val prefixCandidates = resources.words.entries
-                        .filter { it.key.lowercase().startsWith(p.lowercase()) }
-                        .take(300)
-                        .map { it.key }
+                    val prefixCandidates = getPrefixCandidates(p.lowercase(), 300, resources).map { it.first }
                     raw.addAll(prefixCandidates)
                 }
             }
@@ -733,66 +1181,80 @@ class UnifiedAutocorrectEngine(
             // 4) If no candidates from fuzzy prefixes, try collapsed sequence directly
             val snappedSequence = snapToKeys(path.points)
             val collapsedSequence = collapseRepeats(snappedSequence)
-            LogUtil.d(TAG, "[Swipe] snapped='$snappedSequence' collapsed='$collapsedSequence'")
+            Log.d(TAG, "[Swipe] snapped='$snappedSequence' collapsed='$collapsedSequence'")
             
             if (raw.isEmpty() && collapsedSequence.length >= 2) {
-                LogUtil.d(TAG, "[Swipe] No fuzzy candidates, trying collapsed sequence: '$collapsedSequence'")
-                val directCandidates = resources.words.entries
-                    .filter { it.key.lowercase().startsWith(collapsedSequence.lowercase()) }
-            .take(50)
-                    .map { it.key }
+                Log.d(TAG, "[Swipe] No fuzzy candidates, trying collapsed sequence: '$collapsedSequence'")
+                val directCandidates = getPrefixCandidates(collapsedSequence.lowercase(), 50, resources)
+                    .map { it.first }
                 raw.addAll(directCandidates)
             }
             
             // 5) Still empty? Try proximity fallback with edit distance
             if (raw.isEmpty() && collapsedSequence.length >= 2) {
-                LogUtil.d(TAG, "[Swipe] Trying proximity fallback for: '$collapsedSequence'")
-                LogUtil.d(TAG, "[Swipe] Dictionary has ${resources.words.size} words available")
+                Log.d(TAG, "[Swipe] Trying proximity fallback for: '$collapsedSequence'")
+                Log.d(TAG, "[Swipe] Dictionary source = ${if (trieDictionary != null) "binary trie" else "in-memory map (${resources.words.size})"}")
                 
                 // Try a broader search first - longer sequences often have more errors
                 val editThreshold = if (collapsedSequence.length >= 6) 3 else 2
-                val close = resources.words.keys
-                    .filter { word -> 
-                        val editDistance = getEditDistance(collapsedSequence, word)
-                        editDistance <= editThreshold && word.length >= 3 // At least 3 letter words
-                    }
-                    .sortedBy { getEditDistance(collapsedSequence, it) } // Sort by distance
-                    .take(15)
+                val close = if (trieDictionary != null) {
+                    getPrefixCandidates(collapsedSequence.take(2).lowercase(), 120, resources)
+                        .map { it.first }
+                        .filter { word ->
+                            val editDistance = getEditDistance(collapsedSequence, word)
+                            editDistance <= editThreshold && word.length >= 3
+                        }
+                        .sortedBy { getEditDistance(collapsedSequence, it) }
+                        .take(15)
+                } else {
+                    resources.words.keys
+                        .filter { word -> 
+                            val editDistance = getEditDistance(collapsedSequence, word)
+                            editDistance <= editThreshold && word.length >= 3 // At least 3 letter words
+                        }
+                        .sortedBy { getEditDistance(collapsedSequence, it) } // Sort by distance
+                        .take(15)
+                }
                 raw.addAll(close)
-                LogUtil.w(TAG, "[Swipe] Using proximity fallback for '$collapsedSequence' (threshold=$editThreshold): ${close.take(5)}")
+                Log.w(TAG, "[Swipe] Using proximity fallback for '$collapsedSequence' (threshold=$editThreshold): ${close.take(5)}")
                 
                 // If still empty, try some common English words that are similar length
                 if (close.isEmpty()) {
-                    val commonWords = resources.words.keys.filter { 
-                        it.length == collapsedSequence.length && 
-                        it.all { c -> c.isLetter() } 
-                    }.take(10)
-                    LogUtil.d(TAG, "[Swipe] Trying same-length words: ${commonWords.take(5)}")
+                    val commonWords = if (trieDictionary != null) {
+                        getPrefixCandidates(collapsedSequence.first().toString(), 40, resources)
+                            .map { it.first }
+                            .filter { it.length == collapsedSequence.length && it.all { c -> c.isLetter() } }
+                            .take(10)
+                    } else {
+                        resources.words.keys.filter { 
+                            it.length == collapsedSequence.length && 
+                            it.all { c -> c.isLetter() } 
+                        }.take(10)
+                    }
+                    Log.d(TAG, "[Swipe] Trying same-length words: ${commonWords.take(5)}")
                     raw.addAll(commonWords)
                 }
             }
             
             // 6) Additional fallback: adjacency expansion if still empty
             if (raw.isEmpty() && collapsedSequence.length >= 2) {
-                LogUtil.d(TAG, "[Swipe] Trying adjacency expansion for: '$collapsedSequence'")
+                Log.d(TAG, "[Swipe] Trying adjacency expansion for: '$collapsedSequence'")
                 val expanded = expandByAdjacency(collapsedSequence, maxVariants = 20)
                 for (variant in expanded) {
-                    val variantCandidates = resources.words.entries
-                        .filter { it.key.lowercase().startsWith(variant.lowercase()) }
-                        .take(20)
-                        .map { it.key }
+                    val variantCandidates = getPrefixCandidates(variant.lowercase(), 20, resources)
+                        .map { it.first }
                     raw.addAll(variantCandidates)
                     if (raw.size >= 30) break // Don't let it explode
                 }
             }
             
             var rawCandidates = raw.toList()
-            LogUtil.d(TAG, "[Swipe] rawCandidates: ${rawCandidates.size} (first 10: ${rawCandidates.take(10).joinToString(", ")})")
+            Log.d(TAG, "[Swipe] rawCandidates: ${rawCandidates.size} (first 10: ${rawCandidates.take(10).joinToString(", ")})")
             
             // 7) Last resort: if still empty, return collapsed sequence as a candidate
             if (rawCandidates.isEmpty() && collapsedSequence.length >= 2) {
                 rawCandidates = listOf(collapsedSequence)
-                LogUtil.w(TAG, "[Swipe] No dictionary matches, using collapsed fallback: '$collapsedSequence'")
+                Log.w(TAG, "[Swipe] No dictionary matches, using collapsed fallback: '$collapsedSequence'")
             }
             
             // 8) Calculate metrics for each candidate
@@ -811,7 +1273,7 @@ class UnifiedAutocorrectEngine(
             return final.map { Pair(it.text, it.score) }
             
         } catch (e: Exception) {
-            LogUtil.e(TAG, "Error in swipe path decoding", e)
+            Log.e(TAG, "Error in swipe path decoding", e)
             return emptyList()
         }
     }
@@ -878,7 +1340,7 @@ class UnifiedAutocorrectEngine(
                 }
             }
             
-            LogUtil.d(TAG, "[Lattice] point($x,$y) → keys=[${candidates.joinToString("")}]")
+            Log.d(TAG, "[Lattice] point($x,$y) → keys=[${candidates.joinToString("")}]")
             candidates.distinct()
         }
     }
@@ -1011,7 +1473,7 @@ class UnifiedAutocorrectEngine(
         val w_1 = contextWords.getOrNull(1)
         
         return metrics.map { m ->
-            val freq = resources.words[m.word] ?: Int.MAX_VALUE
+            val freq = getWordFrequency(m.word, resources).let { if (it == 0) Int.MAX_VALUE else it }
             val bi = if (w_1 != null) resources.bigrams[Pair(w_1, m.word)] ?: 0 else 0
             val tri = if (w_2 != null && w_1 != null) resources.trigrams[Triple(w_2, w_1, m.word)] ?: 0 else 0
             val lm = getLMBackoff(tri, bi, freq)
@@ -1028,7 +1490,7 @@ class UnifiedAutocorrectEngine(
                        wCorr * (if (resources.corrections.containsValue(m.word)) 1.0 else 0.0) +
                        wFeedback * feedbackBias
             
-            LogUtil.d(TAG, "[Unified] swipe-rank: word=${m.word} path=${String.format("%.2f", m.pathScore)} prox=${String.format("%.2f", m.proximity)} edit=${m.editDistance} lm=${String.format("%.2f", lm)} freq=$freq fb=${String.format("%.2f", feedbackBias)} conf=${String.format("%.2f", confidence)} score=${String.format("%.2f", score)}")
+            Log.d(TAG, "[Unified] swipe-rank: word=${m.word} path=${String.format("%.2f", m.pathScore)} prox=${String.format("%.2f", m.proximity)} edit=${m.editDistance} lm=${String.format("%.2f", lm)} freq=$freq fb=${String.format("%.2f", feedbackBias)} conf=${String.format("%.2f", confidence)} score=${String.format("%.2f", score)}")
             
             Suggestion(m.word, score, SuggestionSource.SWIPE, confidence = confidence)
         }.sortedByDescending { it.score }.take(limit)
@@ -1197,7 +1659,7 @@ class UnifiedAutocorrectEngine(
                         }
                     }
                 } catch (e: Exception) {
-                    LogUtil.e(TAG, "Error preloading language $lang into engine", e)
+                    Log.e(TAG, "Error preloading language $lang into engine", e)
                 }
             }
         }
@@ -1216,26 +1678,45 @@ class UnifiedAutocorrectEngine(
     fun isReady(): Boolean {
         val ready = languageResources != null
         if (!ready) {
-            LogUtil.w(TAG, "⚠️ Engine not ready: resources=${languageResources != null}")
+            Log.w(TAG, "⚠️ Engine not ready: resources=${languageResources != null}")
         }
         return ready
     }
 
     /**
      * Get autocorrect suggestions (legacy compatibility)
-     * Delegates to new unified API
+     * Now properly combines:
+     * 1. True autocorrect (spelling corrections with confidence check)
+     * 2. Prefix suggestions (completions for partial words)
      */
     fun getCorrections(word: String, language: String = "en", context: List<String> = emptyList()): List<Suggestion> {
         if (word.isBlank()) return emptyList()
         
-        // Convert to new API format
-        val suggestions = suggestForTyping(word, context)
+        val result = mutableListOf<Suggestion>()
+        
+        // STEP 1: Check for true autocorrect (spelling correction)
+        // This uses Gboard rules: only correct invalid words with confidence ≥ 0.72
+        val correction = autocorrect(word, context)
+        if (correction != null) {
+            // Put the correction first with CORRECTION source
+            result.add(correction)
+            Log.d(TAG, "📝 getCorrections: Found autocorrect '${word}' → '${correction.text}'")
+        }
+        
+        // STEP 2: Add prefix suggestions (word completions)
+        // These have TYPING source, not CORRECTION
+        val typingSuggestions = suggestForTyping(word, context)
+            .filter { it.text != correction?.text } // Don't duplicate the correction
+            .take(4) // Limit to avoid too many suggestions
+        
+        result.addAll(typingSuggestions)
         
         // Trigger suggestion callback if attached
-        val suggestionWords = suggestions.map { it.text }
+        val suggestionWords = result.map { it.text }
         suggestionCallback?.invoke(suggestionWords)
         
-        return suggestions
+        Log.d(TAG, "📝 getCorrections('$word'): ${result.map { "${it.text}(${it.source})" }}")
+        return result
     }
 
     /**
@@ -1290,7 +1771,7 @@ class UnifiedAutocorrectEngine(
     fun addUserWord(word: String, language: String = "en", frequency: Int = 1) {
         try {
             if (word.isBlank() || word.length < 2) {
-                LogUtil.w(TAG, "⚠️ Word too short to add: '$word'")
+                Log.w(TAG, "⚠️ Word too short to add: '$word'")
                 return
             }
             
@@ -1300,9 +1781,9 @@ class UnifiedAutocorrectEngine(
             // Clear cache to ensure new word appears in suggestions
             clearCache()
             
-            LogUtil.d(TAG, "✅ Added user word: '$word' ($language)")
+            Log.d(TAG, "✅ Added user word: '$word' ($language)")
         } catch (e: Exception) {
-            LogUtil.e(TAG, "❌ Error adding user word '$word'", e)
+            Log.e(TAG, "❌ Error adding user word '$word'", e)
         }
     }
 
@@ -1322,9 +1803,9 @@ class UnifiedAutocorrectEngine(
             // Note: corrections are now handled via LanguageResources
             // Dynamic learning patterns could be added to user data
             
-            LogUtil.d(TAG, "✨ Learned: '$originalWord' → '$correctedWord' for $language")
+            Log.d(TAG, "✨ Learned: '$originalWord' → '$correctedWord' for $language")
         } catch (e: Exception) {
-            LogUtil.e(TAG, "❌ Error learning correction", e)
+            Log.e(TAG, "❌ Error learning correction", e)
         }
     }
 
@@ -1347,7 +1828,7 @@ class UnifiedAutocorrectEngine(
      * Set locale for the engine (legacy compatibility)
      */
     fun setLocale(language: String) {
-        LogUtil.d(TAG, "Legacy setLocale called for: $language")
+        Log.d(TAG, "Legacy setLocale called for: $language")
         // Note: Language setting now handled via setLanguage(lang, resources)
     }
 
@@ -1384,7 +1865,7 @@ class UnifiedAutocorrectEngine(
         return try {
             getCorrections(input, language, emptyList()).take(3).map { it.text }
         } catch (e: Exception) {
-            LogUtil.e(TAG, "Error getting swipe suggestions for '$input'", e)
+            Log.e(TAG, "Error getting swipe suggestions for '$input'", e)
             emptyList()
         }
     }
@@ -1398,10 +1879,11 @@ class UnifiedAutocorrectEngine(
 
     /**
      * Clear suggestion cache (for memory management)
+     * 🔥 FIX 3.2 - Only call this when truly necessary (language change, dictionary update)
      */
     fun clearCache() {
         suggestionCache.evictAll()
-        LogUtil.d(TAG, "Suggestion cache cleared")
+        Log.d(TAG, "⚠️ Suggestion cache cleared (should be rare)")
     }
 
     /**
@@ -1443,7 +1925,7 @@ class UnifiedAutocorrectEngine(
         if (input.isEmpty() || suggestion.isEmpty()) return 0f
 
         if (isBlacklisted(input, suggestion)) {
-            LogUtil.d(TAG, "🚫 Confidence suppressed for blacklisted correction '$input' → '$suggestion'")
+            Log.d(TAG, "🚫 Confidence suppressed for blacklisted correction '$input' → '$suggestion'")
             return 0f
         }
         
@@ -1526,9 +2008,11 @@ class UnifiedAutocorrectEngine(
                 learnFromUser(originalWord, acceptedWord, language)
             }
             
-            LogUtil.d(TAG, "✅ User accepted: '$originalWord' → '$acceptedWord'")
+            Log.d(TAG, "✅ User accepted: '$originalWord' → '$acceptedWord'")
         } catch (e: Exception) {
-            LogUtil.e(TAG, "❌ Error processing accepted correction", e)
+            Log.e(TAG, "❌ Error processing accepted correction", e)
         }
     }
+
+    private fun Boolean?.orFalse(): Boolean = this ?: false
 }

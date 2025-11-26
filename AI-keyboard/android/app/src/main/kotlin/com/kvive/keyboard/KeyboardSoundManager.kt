@@ -35,6 +35,9 @@ object KeyboardSoundManager {
     private var customSoundId: Int? = null
     private var currentCustomUri: String? = null
     private var lastConfigSignature: Triple<String?, Float, String?>? = null
+    
+    // ✅ FIX: Global enabled flag - must be set by AIKeyboardService
+    var isEnabled: Boolean = false
 
     /**
      * Initialize SoundPool and preload built-in sound profiles.
@@ -219,8 +222,14 @@ object KeyboardSoundManager {
 
     /**
      * Play the currently selected sound with configured volume.
+     * ✅ FIX: Now checks isEnabled flag before playing
      */
     fun play() {
+        // 🔥 CRITICAL FIX: Check if sound is globally enabled first
+        if (!isEnabled) {
+            return  // ✅ Sound is OFF - don't play anything
+        }
+        
         val pool = soundPool
         if (pool == null) {
             // Only log errors, not warnings for normal flow

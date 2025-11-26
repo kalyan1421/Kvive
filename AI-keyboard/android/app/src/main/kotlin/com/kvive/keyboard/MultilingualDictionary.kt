@@ -113,6 +113,12 @@ class MultilingualDictionaryImpl(private val context: Context) : MultilingualDic
     override fun get(lang: String): LanguageResources? = languageResources[lang]
 
     override suspend fun preload(lang: String) {
+        // 🔥 FIX 3.1 - COMPLETE prevention of multiple loads
+        if (languageResources.containsKey(lang)) {
+            LogUtil.d(TAG, "⚡ Language already cached in RAM: $lang - skipping reload")
+            return
+        }
+        
         loadingJobs[lang]?.let { existing ->
             existing.join()
             return
@@ -132,10 +138,13 @@ class MultilingualDictionaryImpl(private val context: Context) : MultilingualDic
 
                 val userWords = getUserWords(lang)
                 val shortcuts = getShortcuts(lang)
+                val mergedWords = HashMap(words).apply {
+                    userWords.forEach { putIfAbsent(it, 1) }
+                }
 
                 val resources = LanguageResources(
                     lang = lang,
-                    words = words,
+                    words = mergedWords,
                     bigrams = bigrams,
                     trigrams = trigrams,
                     quadgrams = quadgrams,

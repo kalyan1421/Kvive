@@ -58,6 +58,33 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
   /// Load settings from SharedPreferences
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    
+    // 🔥 FORCE RESET: Ensure sound/vibration are OFF by default (one-time reset)
+    final hasReset = prefs.getBool('_sound_vibration_reset_v2') ?? false;
+    if (!hasReset) {
+      // Force all sound/vibration settings to FALSE
+      await prefs.setBool('audio_feedback', false);
+      await prefs.setBool('sound_enabled', false);
+      await prefs.setBool('flutter.sound_enabled', false);
+      await prefs.setBool('haptic_feedback', false);
+      await prefs.setBool('vibration_enabled', false);
+      await prefs.setBool('flutter.vibration_enabled', false);
+      await prefs.setBool('key_press_sounds', false);
+      await prefs.setBool('flutter.key_press_sounds', false);
+      await prefs.setBool('long_press_key_sounds', false);
+      await prefs.setBool('flutter.long_press_key_sounds', false);
+      await prefs.setBool('repeated_action_key_sounds', false);
+      await prefs.setBool('flutter.repeated_action_key_sounds', false);
+      await prefs.setBool('key_press_vibration', false);
+      await prefs.setBool('flutter.key_press_vibration', false);
+      await prefs.setBool('long_press_key_vibration', false);
+      await prefs.setBool('flutter.long_press_key_vibration', false);
+      await prefs.setBool('repeated_action_key_vibration', false);
+      await prefs.setBool('flutter.repeated_action_key_vibration', false);
+      await prefs.setBool('_sound_vibration_reset_v2', true);  // Mark as reset
+      debugPrint('✅ Sound/Vibration forced to OFF (one-time reset)');
+    }
+    
     setState(() {
       // Sound Settings - use same key as Custom_theme.dart
       // ✅ CRITICAL: Read from multiple keys for compatibility
@@ -79,11 +106,11 @@ class _SoundsVibrationScreenState extends State<SoundsVibrationScreen> {
         }
       }
       keyPressSounds = prefs.getBool('key_press_sounds') ?? 
-                      prefs.getBool('flutter.key_press_sounds') ?? true;
+                      prefs.getBool('flutter.key_press_sounds') ?? false;  // ✅ Changed default to FALSE
       longPressKeySounds = prefs.getBool('long_press_key_sounds') ?? 
-                          prefs.getBool('flutter.long_press_key_sounds') ?? true;
+                          prefs.getBool('flutter.long_press_key_sounds') ?? false;  // ✅ Changed default to FALSE
       repeatedActionKeySounds = prefs.getBool('repeated_action_key_sounds') ?? 
-                                prefs.getBool('flutter.repeated_action_key_sounds') ?? true;
+                                prefs.getBool('flutter.repeated_action_key_sounds') ?? false;  // ✅ Changed default to FALSE
       // Use same key as Custom_theme.dart: 'selected_sound'
       _selectedSound = prefs.getString('selected_sound') ?? 'click.mp3';
       

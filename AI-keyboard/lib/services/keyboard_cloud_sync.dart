@@ -153,12 +153,12 @@ class KeyboardCloudSync {
     await prefs.setBool('rememberCapsState', rememberCaps);
     await prefs.setBool('remember_caps_state', rememberCaps);
     await prefs.setBool('doubleSpacePeriod', data['doubleSpacePeriod'] ?? true);
-    await prefs.setBool('sound_enabled', data['soundEnabled'] ?? false);
+    await prefs.setBool('sound_enabled', data['soundEnabled'] ?? false);  // ✅ Default FALSE
     // ✅ CRITICAL: Convert from 0-1 scale to 0-100 scale for consistency
     final soundVolumePercent = ((data['soundVolume'] ?? 0.5) as double) * 100.0;
     await prefs.setDouble('sound_volume', soundVolumePercent);
     await prefs.setInt('flutter.sound_volume', soundVolumePercent.toInt());
-    await prefs.setBool('vibration_enabled', data['vibrationEnabled'] ?? true);
+    await prefs.setBool('vibration_enabled', data['vibrationEnabled'] ?? false);  // ✅ Changed default to FALSE
     await prefs.setInt('vibration_ms', data['vibrationMs'] ?? 50);
     await prefs.setString('theme', data['theme'] ?? 'default_theme');
     
