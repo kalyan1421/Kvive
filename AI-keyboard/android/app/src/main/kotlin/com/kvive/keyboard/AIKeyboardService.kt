@@ -5478,7 +5478,7 @@ class AIKeyboardService : InputMethodService(),
             try {
                 // ✅ PATCH 2: Skip next-word prediction during typing
                 // Only show typing suggestions when user is actively typing (word not empty)
-                if (word.isNotEmpty() && word.length < 2) {
+                if (word.isNotEmpty() ) {
                     // Word too short for meaningful suggestions
                     withContext(Dispatchers.Main) {
                         updateSuggestionUI(listOf(word))

@@ -586,11 +586,32 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
 
     /**
      * Get best autocorrect suggestion (NEW UNIFIED API)
-     * Implements Gboard-style safety filters and SymSpell-first pipeline.
+     * Implements Gboard-style safety filters and Explicit Corrections first.
      */
     fun autocorrect(input: String, contextWords: List<String>): Suggestion? {
         val resources = languageResources ?: return null
         val lower = input.lowercase()
+        
+        // ==============================================================================
+        // 🚀 CRITICAL UPDATE: EXPLICIT CORRECTIONS (Your "Clean & Perfect" Logic)
+        // This block forces the engine to respect your cleaned binary file above all else.
+        // ==============================================================================
+        val explicitFix = resources.corrections[lower]
+        if (explicitFix != null) {
+            // Logic: User typed "teh". Found "the" in safe file.
+            // Action: Force auto-commit immediately.
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "⚡ Fast-track correction found: '$input' -> '$explicitFix'")
+            }
+            return Suggestion(
+                text = explicitFix,
+                score = 1.0,             // Max score to ensure it wins
+                source = SuggestionSource.CORRECTION,
+                isAutoCommit = true,     // Force the replacement
+                confidence = 1.0
+            )
+        }
+        // ==============================================================================
         
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "🔍 Autocorrect called for: '$input'")
