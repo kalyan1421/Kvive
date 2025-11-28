@@ -65,7 +65,7 @@ class SwipeDecoderML(
                         // If dist is huge (detour), penalty stops at -4.0 instead of -100.0
                         // This allows "money" to survive even if you swiped over "t" and "r".
                         val rawSpatial = -(dist * dist) / (2 * SIGMA * SIGMA)
-                        val spatialScore = rawSpatial.coerceAtLeast(SPATIAL_CLAMP)
+                        val spatialScore = rawSpatial.toDouble().coerceAtLeast(SPATIAL_CLAMP)
 
                         nextBeam.add(Hypothesis(
                             text = hyp.text + char,
@@ -81,7 +81,7 @@ class SwipeDecoderML(
                         if (keyPos != null) {
                             val dist = calculateDistance(touchX, touchY, keyPos.first, keyPos.second)
                             val rawSpatial = -(dist * dist) / (2 * SIGMA * SIGMA)
-                            val spatialScore = rawSpatial.coerceAtLeast(SPATIAL_CLAMP)
+                            val spatialScore = rawSpatial.toDouble().coerceAtLeast(SPATIAL_CLAMP)
                             
                             nextBeam.add(hyp.copy(score = hyp.score + spatialScore))
                         }
