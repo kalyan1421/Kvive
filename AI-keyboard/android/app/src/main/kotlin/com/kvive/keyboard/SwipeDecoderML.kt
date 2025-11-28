@@ -6,11 +6,12 @@ import com.kvive.keyboard.utils.LogUtil
 import kotlin.math.*
 
 /**
- * SwipeDecoderML V7 - Robust Anchored Model
+ * SwipeDecoderML V8 - Fast-Swipe Interpolation & Scaled Frequency
  * 
  * Fixes:
- * 1. "Detour" Bug (Money vs Monterey): Added spatial score clamping. Bad points don't kill good words.
- * 2. "Read" Bug: Relaxed START_RADIUS and replaced static list with dynamic frequency boosting.
+ * 1. "Fast Swipe" Bug: Added interpolatePath() to fill gaps between fast points (e.g. Y..E..S).
+ * 2. "Frequency Bug": Adjusted boost thresholds to match 0-255 dictionary scale.
+ * 3. "Common Word Priority": Tiered boosting ensures "yes" (201) beats "tyre" (154).
  */
 class SwipeDecoderML(
     private val context: Context,
@@ -20,10 +21,11 @@ class SwipeDecoderML(
     companion object {
         private const val TAG = "SwipeDecoderML"
         private const val BEAM_WIDTH = 60 
-        private const val SIGMA = 0.12f   // Slightly relaxed sigma
-        private const val START_RADIUS = 0.21f // Relaxed start radius (approx 2 key widths)
-        private const val START_PENALTY = -8.0 // Strong anchoring but slightly more forgiving
-        private const val SPATIAL_CLAMP = -4.0 // Maximum penalty per point (Robustness fix)
+        private const val SIGMA = 0.14f   // Relaxed Sigma for faster/sloppier swipes
+        private const val START_RADIUS = 0.18f 
+        private const val START_PENALTY = -8.0
+        private const val SPATIAL_CLAMP = -3.5 // Caps penalty for a single bad point
+        private const val INTERPOLATION_STEP = 0.05f // Distance to fill gaps in fast swipes
     }
 
     data class Hypothesis(
@@ -33,39 +35,41 @@ class SwipeDecoderML(
         val lastChar: Char?
     )
 
-    fun decode(path: SwipePath): List<Pair<String, Double>> {
+    fun decode(rawPath: SwipePath): List<Pair<String, Double>> {
+        // 1. Interpolate path to handle fast swipes (prevents skipping letters)
+        val path = interpolatePath(rawPath)
+        
         if (path.points.size < 3) return emptyList()
 
         try {
-            LogUtil.d(TAG, "🔍 V7 Decode: ${path.points.size} points (Robust)")
+            LogUtil.d(TAG, "🔍 V8 Decode: ${path.points.size} points (Interpolated)")
             
-            // 1. Start with root hypothesis
             var beam = listOf(Hypothesis("", 0.0, 0, null))
 
-            // 2. Iterate points
             for (i in path.points.indices) {
-                val (touchX, touchY) = path.points[i]
+                // Explicit Cast to Float to fix type mismatch
+                val point = path.points[i]
+                val touchX = point.first.toFloat()
+                val touchY = point.second.toFloat()
+                
                 val nextBeam = mutableListOf<Hypothesis>()
 
                 for (hyp in beam) {
-                    // OPTION A: Move to a new letter
                     val children = dictionary.getChildren(hyp.nodeOffset)
                     for ((char, childOffset) in children) {
                         val keyPos = keyLayout[char] ?: continue
+                        val keyX = keyPos.first.toFloat()
+                        val keyY = keyPos.second.toFloat()
                         
-                        // Score: How close is this NEW key?
-                        val dist = calculateDistance(touchX, touchY, keyPos.first, keyPos.second)
+                        val dist = calculateDistance(touchX, touchY, keyX, keyY)
                         
-                        // Anchoring Check
                         if (hyp.text.isEmpty() && dist > START_RADIUS) {
                             continue 
                         }
 
-                        // 🔴 FIX: Clamped Spatial Score (Robustness)
-                        // If dist is huge (detour), penalty stops at -4.0 instead of -100.0
-                        // This allows "money" to survive even if you swiped over "t" and "r".
+                        // Clamped spatial score allows for one bad point (corner cutting)
                         val rawSpatial = -(dist * dist) / (2 * SIGMA * SIGMA)
-                        val spatialScore = rawSpatial.toDouble().coerceAtLeast(SPATIAL_CLAMP)
+                        val spatialScore = rawSpatial.coerceAtLeast(SPATIAL_CLAMP)
 
                         nextBeam.add(Hypothesis(
                             text = hyp.text + char,
@@ -75,13 +79,15 @@ class SwipeDecoderML(
                         ))
                     }
                     
-                    // OPTION B: Stay on current letter (Self-Loop)
+                    // Self-Loop (Staying on the same key)
                     if (hyp.lastChar != null) {
                         val keyPos = keyLayout[hyp.lastChar]
                         if (keyPos != null) {
-                            val dist = calculateDistance(touchX, touchY, keyPos.first, keyPos.second)
+                            val keyX = keyPos.first.toFloat()
+                            val keyY = keyPos.second.toFloat()
+                            val dist = calculateDistance(touchX, touchY, keyX, keyY)
                             val rawSpatial = -(dist * dist) / (2 * SIGMA * SIGMA)
-                            val spatialScore = rawSpatial.toDouble().coerceAtLeast(SPATIAL_CLAMP)
+                            val spatialScore = rawSpatial.coerceAtLeast(SPATIAL_CLAMP)
                             
                             nextBeam.add(hyp.copy(score = hyp.score + spatialScore))
                         }
@@ -90,7 +96,7 @@ class SwipeDecoderML(
                     }
                 }
 
-                // 3. Prune & Merge
+                // Prune
                 val merged = HashMap<Int, Hypothesis>()
                 for (h in nextBeam) {
                     val existing = merged[h.nodeOffset]
@@ -102,7 +108,7 @@ class SwipeDecoderML(
                 beam = merged.values.sortedByDescending { it.score }.take(BEAM_WIDTH)
             }
 
-            // 4. Finalize & Rank
+            // Final Ranking
             val results = beam.mapNotNull { hyp ->
                 val freq = dictionary.getFrequencyAtNode(hyp.nodeOffset)
                 if (freq > 0) {
@@ -110,13 +116,18 @@ class SwipeDecoderML(
                     val lengthBonus = hyp.text.length * 0.1
                     val wordPenalty = calculateWordPenalty(hyp.text)
                     
-                    // 🔴 FIX: Dynamic Frequency Boost
-                    // Boost ANY word with high frequency (common words like "read", "money")
-                    val freqBoost = if (freq > 50000) 2.5 else 0.0
+                    // 🔴 FIX: Tiered Boosting for 0-255 scale
+                    // freq 201 ("yes") -> +4.0
+                    // freq 154 ("tyre") -> +1.0
+                    // Result: "yes" gains +3.0 advantage over "tyre"
+                    val freqBoost = when {
+                        freq >= 180 -> 4.0
+                        freq >= 120 -> 1.0
+                        else -> 0.0
+                    }
                     
                     val finalScore = hyp.score + freqScore + lengthBonus - wordPenalty + freqBoost
                     
-                    // Log only top candidates to reduce noise
                     if (finalScore > -20) {
                          LogUtil.d(TAG, "📊 ${hyp.text} | path=${String.format("%.2f", hyp.score)} freq=$freq boost=$freqBoost final=${String.format("%.2f", finalScore)}")
                     }
@@ -135,8 +146,44 @@ class SwipeDecoderML(
         }
     }
 
+    /**
+     * Fills gaps in fast swipes. If points are too far apart, generates intermediate points.
+     */
+    private fun interpolatePath(original: SwipePath): SwipePath {
+        if (original.points.size < 2) return original
+        
+        val newPoints = mutableListOf<Pair<Float, Float>>()
+        newPoints.add(original.points[0])
+        
+        for (i in 0 until original.points.size - 1) {
+            val p1 = original.points[i]
+            val p2 = original.points[i+1]
+            
+            // Calculate distances using Doubles for precision before casting
+            val dx = p2.first - p1.first
+            val dy = p2.second - p1.second
+            val dist = sqrt((dx * dx).toDouble() + (dy * dy).toDouble()).toFloat()
+            
+            // If gap is large (fast swipe), insert points
+            if (dist > INTERPOLATION_STEP) {
+                val steps = (dist / INTERPOLATION_STEP).toInt()
+                for (j in 1..steps) {
+                    val fraction = j.toFloat() / (steps + 1)
+                    val nx = p1.first + dx * fraction
+                    val ny = p1.second + dy * fraction
+                    newPoints.add(Pair(nx, ny))
+                }
+            }
+            newPoints.add(p2)
+        }
+        
+        return SwipePath(newPoints)
+    }
+
     private fun calculateDistance(x1: Float, y1: Float, x2: Float, y2: Float): Float {
-        return sqrt((x1 - x2).pow(2) + (y1 - y2).pow(2))
+        val dx = x1 - x2
+        val dy = y1 - y2
+        return sqrt((dx * dx).toDouble() + (dy * dy).toDouble()).toFloat()
     }
 
     private fun calculateWordPenalty(word: String): Double {
@@ -153,8 +200,6 @@ class SwipeDecoderML(
         }
         penalty += repeatCount * 1.5
         
-        // Don't penalize very frequent words
-        // This logic is now handled primarily by freqBoost in main loop
         return penalty.coerceAtLeast(0.0)
     }
 }
