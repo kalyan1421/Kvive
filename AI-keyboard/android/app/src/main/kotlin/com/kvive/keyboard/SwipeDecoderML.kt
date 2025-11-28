@@ -69,7 +69,7 @@ class SwipeDecoderML(
 
                         // Clamped spatial score allows for one bad point (corner cutting)
                         val rawSpatial = -(dist * dist) / (2 * SIGMA * SIGMA)
-                        val spatialScore = rawSpatial.coerceAtLeast(SPATIAL_CLAMP)
+                        val spatialScore = rawSpatial.toDouble().coerceAtLeast(SPATIAL_CLAMP)
 
                         nextBeam.add(Hypothesis(
                             text = hyp.text + char,
@@ -87,7 +87,7 @@ class SwipeDecoderML(
                             val keyY = keyPos.second.toFloat()
                             val dist = calculateDistance(touchX, touchY, keyX, keyY)
                             val rawSpatial = -(dist * dist) / (2 * SIGMA * SIGMA)
-                            val spatialScore = rawSpatial.coerceAtLeast(SPATIAL_CLAMP)
+                            val spatialScore = rawSpatial.toDouble().coerceAtLeast(SPATIAL_CLAMP)
                             
                             nextBeam.add(hyp.copy(score = hyp.score + spatialScore))
                         }
