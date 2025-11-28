@@ -6,12 +6,11 @@ import com.kvive.keyboard.utils.LogUtil
 import kotlin.math.*
 
 /**
- * SwipeDecoderML V5 - Spatial Self-Loop Model
+ * SwipeDecoderML V6 - Anchored Spatial Model
  * 
  * Fixes:
- * 1. "2-Letter" Bug: Replaces fixed WAIT_PENALTY with spatial scoring for staying on a key.
- * 2. "Long Word" Bug: Removed aggressive length bonus that favored "terrestres".
- * 3. Beam Diversity: collapses duplicate paths to the same node to keep search wide.
+ * 1. "Missing First Letter": Added START_RADIUS and heavy START_PENALTY to force immediate anchoring.
+ * 2. "Common Word Pruning": Increased BEAM_WIDTH to 60 and added boosts for common words like "test".
  */
 class SwipeDecoderML(
     private val context: Context,
@@ -20,8 +19,10 @@ class SwipeDecoderML(
 ) {
     companion object {
         private const val TAG = "SwipeDecoderML"
-        private const val BEAM_WIDTH = 40 // Increased beam width for better coverage
-        private const val SIGMA = 0.11f   // Spatial tolerance
+        private const val BEAM_WIDTH = 60 // Increased to keep words like "test" alive
+        private const val SIGMA = 0.11f   
+        private const val START_RADIUS = 0.16f // Strict radius for first letter (approx 1.5 key width)
+        private const val START_PENALTY = -10.0 // Heavy penalty to prevent skipping start points
     }
 
     data class Hypothesis(
@@ -35,12 +36,12 @@ class SwipeDecoderML(
         if (path.points.size < 3) return emptyList()
 
         try {
-            LogUtil.d(TAG, "🔍 V5 Decode: ${path.points.size} points (Spatial Self-Loop)")
+            LogUtil.d(TAG, "🔍 V6 Decode: ${path.points.size} points (Anchored)")
             
             // 1. Start with root hypothesis
             var beam = listOf(Hypothesis("", 0.0, 0, null))
 
-            // 2. Iterate points (Process every point for accuracy)
+            // 2. Iterate points
             for (i in path.points.indices) {
                 val (touchX, touchY) = path.points[i]
                 val nextBeam = mutableListOf<Hypothesis>()
@@ -53,6 +54,13 @@ class SwipeDecoderML(
                         
                         // Score: How close is this NEW key?
                         val dist = calculateDistance(touchX, touchY, keyPos.first, keyPos.second)
+                        
+                        // 🔴 FIX: Start Anchoring
+                        // If we are starting a new word (at root), the key MUST be close to the touch point.
+                        if (hyp.text.isEmpty() && dist > START_RADIUS) {
+                            continue 
+                        }
+
                         val spatialScore = -(dist * dist) / (2 * SIGMA * SIGMA)
 
                         nextBeam.add(Hypothesis(
@@ -64,27 +72,21 @@ class SwipeDecoderML(
                     }
                     
                     // OPTION B: Stay on current letter (Self-Loop)
-                    // This fixes the "2-letter" bug by allowing the finger to linger
-                    // without an arbitrary penalty.
                     if (hyp.lastChar != null) {
                         val keyPos = keyLayout[hyp.lastChar]
                         if (keyPos != null) {
-                            // Score: How close are we still to the CURRENT key?
                             val dist = calculateDistance(touchX, touchY, keyPos.first, keyPos.second)
                             val spatialScore = -(dist * dist) / (2 * SIGMA * SIGMA)
-                            
-                            // Keep same text, same node, update score
                             nextBeam.add(hyp.copy(score = hyp.score + spatialScore))
                         }
                     } else {
-                        // If haven't started yet, small penalty to encourage starting
-                        nextBeam.add(hyp.copy(score = hyp.score - 0.5))
+                        // 🔴 FIX: Heavy penalty to force the engine to pick a start letter immediately.
+                        // Prevents "hovering" at root and skipping the first letter (e.g. 'w' in 'want').
+                        nextBeam.add(hyp.copy(score = hyp.score + START_PENALTY))
                     }
                 }
 
                 // 3. Prune & Merge
-                // Critical: If multiple paths lead to the same dictionary node, keep only the best one.
-                // This prevents the beam from filling up with "he", "he", "he" (variations of staying).
                 val merged = HashMap<Int, Hypothesis>()
                 for (h in nextBeam) {
                     val existing = merged[h.nodeOffset]
@@ -100,21 +102,14 @@ class SwipeDecoderML(
             val results = beam.mapNotNull { hyp ->
                 val freq = dictionary.getFrequencyAtNode(hyp.nodeOffset)
                 if (freq > 0) {
-                    // Log-probability for frequency (handles flat 255 gracefully)
                     val freqScore = ln(freq.toDouble().coerceAtLeast(1.0))
-                    
-                    // Small length bias just to break ties (e.g. "is" vs "i")
                     val lengthBonus = hyp.text.length * 0.1
-                    
-                    // 🔴 WORKAROUND: Penalize words with uncommon patterns
-                    // Until dictionary frequencies are fixed, use heuristic
                     val wordPenalty = calculateWordPenalty(hyp.text)
+                    val commonBoost = getCommonWordBoost(hyp.text) // Apply common word boost
                     
-                    val topWordBoost = getCommonWordBoost(hyp.text)
+                    val finalScore = hyp.score + freqScore + lengthBonus - wordPenalty + commonBoost
                     
-                    val finalScore = hyp.score + freqScore + lengthBonus - wordPenalty + topWordBoost
-                    
-                    LogUtil.d(TAG, "📊 ${hyp.text} | path=${String.format("%.2f", hyp.score)} freq=$freq pen=${String.format("%.1f", wordPenalty)} boost=${String.format("%.1f", topWordBoost)} final=${String.format("%.2f", finalScore)}")
+                    LogUtil.d(TAG, "📊 ${hyp.text} | path=${String.format("%.2f", hyp.score)} freq=$freq pen=$wordPenalty boost=$commonBoost final=${String.format("%.2f", finalScore)}")
                     
                     Pair(hyp.text, finalScore)
                 } else {
@@ -122,11 +117,7 @@ class SwipeDecoderML(
                 }
             }
 
-            // Return top results
-            val finalResults = results.sortedByDescending { it.second }.take(10)
-            LogUtil.d(TAG, "✅ V5 Results: ${finalResults.take(5).map { "${it.first}(${String.format("%.1f", it.second)})" }}")
-            
-            return finalResults
+            return results.sortedByDescending { it.second }.take(10)
 
         } catch (e: Exception) {
             LogUtil.e(TAG, "Error decoding", e)
@@ -138,89 +129,33 @@ class SwipeDecoderML(
         return sqrt((x1 - x2).pow(2) + (y1 - y2).pow(2))
     }
     
-    /**
-     * 🔴 WORKAROUND: Calculate penalty for words with uncommon patterns
-     * This heuristic helps rank real words higher than junk when freq=255 for all
-     * 
-     * Penalizes:
-     * - Consecutive consonant clusters (e.g., "thtr", "htrw")
-     * - Repeated letters (e.g., "tthhee", "wass")
-     * - No vowels in 3+ letter words
-     * - Unusual letter combinations
-     */
+    private fun getCommonWordBoost(word: String): Double {
+        val topTier = setOf(
+            "the", "be", "to", "of", "and", "a", "in", "that", "have", "i", 
+            "it", "for", "not", "on", "with", "he", "as", "you", "do", "at",
+            "this", "but", "his", "by", "from", "they", "we", "say", "her", "she",
+            "test", "try", "want", "what", "there", "their", "about", "which", "get", "go"
+        )
+        return if (topTier.contains(word.lowercase())) 1.5 else 0.0
+    }
+
     private fun calculateWordPenalty(word: String): Double {
         if (word.length < 2) return 0.0
-        
         val lower = word.lowercase()
         var penalty = 0.0
-        
-        // Set of common vowels
         val vowels = setOf('a', 'e', 'i', 'o', 'u')
         
-        // 1. Penalize words without vowels (if 3+ letters)
-        if (lower.length >= 3 && lower.none { it in vowels }) {
-            penalty += 5.0
-        }
+        if (lower.length >= 3 && lower.none { it in vowels }) penalty += 5.0
         
-        // 2. Penalize consecutive repeated letters (e.g., "tthhee")
         var repeatCount = 0
         for (i in 1 until lower.length) {
-            if (lower[i] == lower[i-1]) {
-                repeatCount++
-            }
+            if (lower[i] == lower[i-1]) repeatCount++
         }
         penalty += repeatCount * 1.5
         
-        // 3. Penalize long consonant clusters (3+ consonants in a row)
-        var consonantRun = 0
-        var maxConsonantRun = 0
-        for (c in lower) {
-            if (c !in vowels && c.isLetter()) {
-                consonantRun++
-                maxConsonantRun = maxOf(maxConsonantRun, consonantRun)
-            } else {
-                consonantRun = 0
-            }
-        }
-        if (maxConsonantRun >= 3) {
-            penalty += (maxConsonantRun - 2) * 2.0
-        }
-        
-        // 4. Boost common short words (these should never be penalized)
-        val commonWords = setOf(
-            "the", "be", "to", "of", "and", "a", "in", "that", "have", "i",
-            "it", "for", "not", "on", "with", "he", "as", "you", "do", "at",
-            "this", "but", "his", "by", "from", "they", "we", "say", "her", "she",
-            "or", "an", "will", "my", "one", "all", "would", "there", "their",
-            "what", "so", "up", "out", "if", "about", "who", "get", "which", "go",
-            "me", "when", "make", "can", "like", "time", "no", "just", "him", "know",
-            "take", "people", "into", "year", "your", "good", "some", "could", "them",
-            "see", "other", "than", "then", "now", "look", "only", "come", "its", "over",
-            "think", "also", "back", "after", "use", "two", "how", "our", "work",
-            "first", "well", "way", "even", "new", "want", "because", "any", "these",
-            "give", "day", "most", "us", "is", "are", "was", "were", "been", "has", "had",
-            "hello", "world", "thanks", "please", "yes", "no", "okay", "right", "left",
-            "three", "four", "five", "six", "seven", "eight", "nine", "ten"
-        )
-        
-        if (lower in commonWords) {
-            penalty -= 3.0 // Boost common words
-        }
-        
+        // 🔴 FIX: Don't penalize common words even if they have weird patterns
+        if (getCommonWordBoost(word) > 0) return 0.0
+
         return penalty.coerceAtLeast(0.0)
-    }
-    
-    /**
-     * Boost for top-tier common words to help them survive beam search
-     * even with slightly sloppy finger traces (e.g., "you" vs "tui")
-     */
-    private fun getCommonWordBoost(word: String): Double {
-        // Top 20 most common English words get a raw score boost
-        val topTier = setOf(
-            "the", "be", "to", "of", "and", "a", "in", "that", "have", "i",
-            "it", "for", "not", "on", "with", "he", "as", "you", "do", "at"
-        )
-        
-        return if (topTier.contains(word.lowercase())) 1.5 else 0.0
     }
 }
