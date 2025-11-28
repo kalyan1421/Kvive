@@ -1020,10 +1020,11 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
                 // Calculate confidence gaps between candidates
                 filteredCandidates.mapIndexed { index, (word, score) ->
                     // Calculate "Confidence Gap"
-                    // If the top word score is > 2.0 higher than the second word, we are very sure
+                    // V4: Gap threshold reduced to 1.5 (was 2.0) because penalty-based scoring is tighter
+                    // If the top word score is > 1.5 higher than the second word, we are confident
                     val nextScore = filteredCandidates.getOrNull(index + 1)?.second ?: (score - 10.0)
                     val confidenceGap = score - nextScore
-                    val isConfident = confidenceGap > 2.0
+                    val isConfident = confidenceGap > 1.5  // Reduced from 2.0 for V4
                     
                     // Calculate normalized confidence (0.0-1.0)
                     val confidence = when {
