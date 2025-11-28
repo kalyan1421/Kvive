@@ -6,30 +6,22 @@ import com.kvive.keyboard.utils.LogUtil
 import kotlin.math.*
 
 /**
- * SwipeDecoderML - V4 (Penalty-Based Scoring + Aspect Ratio Correction)
+ * SwipeDecoderML - Gboard-quality swipe decoder using Beam Search
  * 
- * CRITICAL FIXES:
- * 1. Penalty-Based Scoring: Uses negative costs instead of positive rewards
- *    - More intuitive: 0.0 = perfect, negative = accumulated errors
- *    - Frequency becomes a small positive offset to negative scores
+ * Uses graph traversal through the dictionary trie combined with spatial scoring
+ * to find the most likely word given a swipe path.
  * 
- * 2. Aspect Ratio Correction: Adjusts Y-distance to match screen physics
- *    - Phones are taller than wide (~2:1 aspect ratio)
- *    - Without correction, vertical swipes appear "longer" than horizontal
- *    - Now: 1cm horizontal = 1cm vertical in scoring
+ * Algorithm: Beam Search with Gaussian spatial model
+ * - Maintains top N hypotheses (partial words) at each step
+ * - For each touch point, expands hypotheses by adding possible next letters
+ * - Scores based on spatial proximity (Gaussian) + dictionary frequency
+ * - Prunes search space by keeping only the top BEAM_WIDTH candidates
  * 
- * 3. Auto-Normalization Detection: Handles pixel vs normalized coordinates
- *    - Detects if coordinates > 1.0 (pixels) and auto-normalizes
- *    - Works with both coordinate systems transparently
- * 
- * 4. Stricter Filtering: Path threshold -15.0 (was -10.0)
- *    - More aggressive garbage filtering
- * 
- * Algorithm: Beam Search with penalty accumulation
- * - Start at 0.0 (perfect score)
- * - Accumulate penalties for spatial errors, direction misalignment
- * - Add small frequency boost at end
- * - Filter words with excessive penalties (< -15.0)
+ * Features:
+ * - Handles "corner cutting" (e.g., swiping from E to O through R)
+ * - Robust to imprecise paths
+ * - Combines spatial and linguistic knowledge
+ * - Real-time performance (~10ms for typical words)
  */
 class SwipeDecoderML(
     private val context: Context,
@@ -38,238 +30,146 @@ class SwipeDecoderML(
 ) {
     companion object {
         private const val TAG = "SwipeDecoderML"
+        private const val BEAM_WIDTH = 25 // Keep top 25 candidates alive
+        private const val SIGMA = 0.12f   // Spatial tolerance (key radius roughly)
         
-        // Beam search parameters
-        private const val BEAM_WIDTH = 30       
-        private const val SIGMA = 0.10f         // Stricter spatial tolerance
-        
-        // PENALTY WEIGHTS (Negative = Cost)
-        private const val WAIT_COST = -0.35     // Penalty for dwelling without moving
-        private const val DIRECTION_WEIGHT = 2.5 // Weight for directional misalignment penalty
-        private const val FREQ_WEIGHT = 0.5      // Frequency boost (small positive offset)
-        
-        // Path quality threshold
-        private const val MIN_PATH_SCORE = -15.0 // More aggressive than V3.1 (-10.0)
+        // Penalty for keeping hypothesis without adding a letter
+        private const val WAIT_PENALTY = 0.5
     }
 
-    /**
-     * Lazy-loaded aspect ratio (height/width)
-     * Typical phone: ~2.0 (e.g., 1080x2400)
-     * Used to correct Y-axis distance calculations
-     */
-    private val aspectRatio: Float by lazy {
-        val metrics = context.resources.displayMetrics
-        if (metrics.widthPixels > 0) {
-            val ratio = metrics.heightPixels.toFloat() / metrics.widthPixels.toFloat()
-            LogUtil.d(TAG, "📐 Aspect ratio: ${String.format("%.2f", ratio)} (${metrics.widthPixels}x${metrics.heightPixels})")
-            ratio
-        } else {
-            2.0f // Default fallback
-        }
-    }
-
-    /**
-     * Hypothesis represents a partial word being formed
-     * @param score Accumulated penalty (0.0 = perfect, negative = errors)
-     */
+    // A "Hypothesis" represents one possible word being formed
     data class Hypothesis(
         val text: String,
-        val score: Double,      // Penalty score (0.0 best, negative = accumulated errors)
-        val nodeOffset: Int,
-        val lastChar: Char?,
-        val pathIndex: Int
+        val score: Double, // Log probability (higher is better, usually negative)
+        val nodeOffset: Int, // Current position in the Trie
+        val lastChar: Char?
     )
 
     /**
-     * Decode swipe path to candidate words using penalty-based Beam Search
+     * Decode swipe path to candidate words with confidence scores
+     * Returns list of (word, score) pairs sorted by score (higher is better)
      * 
-     * @param path SwipePath with touch points (can be pixel or normalized coordinates)
-     * @return List of (word, score) pairs - higher score is better (less negative)
+     * @param path SwipePath containing normalized touch points
+     * @return List of word candidates with scores
      */
     fun decode(path: SwipePath): List<Pair<String, Double>> {
         if (path.points.size < 3) {
-            LogUtil.w(TAG, "Path too short: ${path.points.size} points")
+            LogUtil.w(TAG, "Path too short for decoding: ${path.points.size} points")
             return emptyList()
         }
-        
-        try {
-            LogUtil.d(TAG, "🔍 V4 Decoding swipe path with ${path.points.size} points")
-            
-            // 1. AUTO-DETECT and normalize coordinates if needed
-            val firstPoint = path.points[0]
-            val needsNormalization = firstPoint.first > 1.0f || firstPoint.second > 1.0f
-            
-            val workingPoints = if (needsNormalization) {
-                val metrics = context.resources.displayMetrics
-                LogUtil.d(TAG, "🔄 Auto-normalizing pixel coordinates (${firstPoint.first.toInt()}, ${firstPoint.second.toInt()}) → (0-1 range)")
-                path.points.map { 
-                    Pair(
-                        it.first / metrics.widthPixels, 
-                        it.second / metrics.heightPixels
-                    ) 
-                }
-            } else {
-                path.points
-            }
 
-            // 2. Initialize Beam with perfect score (0.0)
-            var beam = listOf(Hypothesis("", 0.0, 0, null, 0))
+        try {
+            LogUtil.d(TAG, "🔍 Decoding swipe path with ${path.points.size} points")
             
-            // 3. Iterate through path points (skip every 2nd for performance)
-            for (i in 1 until workingPoints.size step 2) {
-                val currPoint = workingPoints[i]
-                val prevPoint = workingPoints[i - 1]
-                
+            // 1. Start with an empty root hypothesis
+            // 0 is usually the root offset in MappedTrie
+            var beam = listOf(Hypothesis("", 0.0, 0, null))
+
+            // 2. Iterate through sampled points in the swipe path
+            // We skip points to improve performance (e.g., process every 2nd point)
+            for (i in path.points.indices step 2) {
+                val (touchX, touchY) = path.points[i]
                 val nextBeam = mutableListOf<Hypothesis>()
 
-                // Calculate finger direction vector (with aspect ratio correction)
-                val fingerDx = currPoint.first - prevPoint.first
-                val fingerDy = (currPoint.second - prevPoint.second) * aspectRatio // Fix Y-axis
-                val fingerLen = sqrt(fingerDx * fingerDx + fingerDy * fingerDy)
-
+                // 3. Expand every active hypothesis
                 for (hyp in beam) {
-                    // OPTION A: STAY (Dwell on current letter)
-                    // Small penalty to encourage movement
-                    nextBeam.add(hyp.copy(
-                        score = hyp.score + WAIT_COST,  // Add negative penalty
-                        pathIndex = i
-                    ))
-
-                    // OPTION B: MOVE (Add next letter)
+                    // Get all valid next letters from the dictionary
                     val children = dictionary.getChildren(hyp.nodeOffset)
 
                     for ((char, childOffset) in children) {
                         val keyPos = keyLayout[char] ?: continue
                         
-                        // 1. SPATIAL PENALTY (Gaussian log-probability)
-                        // Distance = how far touch is from key center
-                        val dist = calculateDistance(currPoint.first, currPoint.second, keyPos.first, keyPos.second)
-                        // Penalty = -dist² / (2σ²)
-                        // Perfect (dist=0): penalty = 0.0
-                        // Far (dist=0.2): penalty = -2.0
-                        val spatialPenalty = -(dist * dist) / (2 * SIGMA * SIGMA)
+                        // -- SPATIAL SCORE --
+                        // How close is the touch point to this key?
+                        val dist = calculateDistance(touchX, touchY, keyPos.first, keyPos.second)
+                        
+                        // Gaussian score: e^(-dist^2 / 2*sigma^2)
+                        // We work in Log space to avoid tiny numbers: -dist^2 / C
+                        val spatialScore = -(dist * dist) / (2 * SIGMA * SIGMA)
 
-                        // 2. DIRECTIONAL PENALTY
-                        // Penalize moving away from the target key
-                        var directionPenalty = 0.0
-                        if (hyp.lastChar != null && fingerLen > 0.02) {
-                            val lastKeyPos = keyLayout[hyp.lastChar]
-                            if (lastKeyPos != null) {
-                                // Ideal vector: lastKey → candidateKey
-                                val idealDx = keyPos.first - lastKeyPos.first
-                                val idealDy = (keyPos.second - lastKeyPos.second) * aspectRatio // Fix Y-axis
-                                val idealLen = sqrt(idealDx * idealDx + idealDy * idealDy)
-                                
-                                if (idealLen > 0) {
-                                    // Dot product: -1.0 (opposite) to +1.0 (aligned)
-                                    val dot = (fingerDx * idealDx + fingerDy * idealDy) / (fingerLen * idealLen)
-                                    // Convert to penalty: 
-                                    // dot = +1.0 (aligned) → penalty = 0.0
-                                    // dot = -1.0 (opposite) → penalty = -5.0
-                                    directionPenalty = (dot - 1.0) * DIRECTION_WEIGHT
-                                }
-                            }
-                        }
-
-                        // 3. DUPLICATE SUPPRESSION
-                        // Don't allow same letter unless very close (strong dwell)
-                        if (char == hyp.lastChar && spatialPenalty < -0.2) continue
-
-                        // 4. ACCUMULATE PENALTIES
-                        val newScore = hyp.score + spatialPenalty + directionPenalty
-
-                        // Fast pruning: skip if way behind
-                        if (nextBeam.isNotEmpty() && newScore < nextBeam[0].score - 20.0) continue
-
-                        nextBeam.add(Hypothesis(
+                        // Create new hypothesis
+                        val newHyp = Hypothesis(
                             text = hyp.text + char,
-                            score = newScore,
+                            score = hyp.score + spatialScore,
                             nodeOffset = childOffset,
-                            lastChar = char,
-                            pathIndex = i
-                        ))
+                            lastChar = char
+                        )
+                        nextBeam.add(newHyp)
                     }
+                    
+                    // CRITICAL: Also keep the *current* hypothesis alive without adding a letter.
+                    // (The user might be dragging their finger *towards* the next letter but hasn't reached it).
+                    // We apply a small penalty to prevent infinite waiting.
+                    nextBeam.add(hyp.copy(score = hyp.score - WAIT_PENALTY))
                 }
 
-                // 5. PRUNE BEAM
-                // Group by nodeOffset to merge identical prefixes
-                val uniqueBeam = nextBeam
-                    .groupBy { it.nodeOffset }
-                    .map { (_, list) -> list.maxByOrNull { it.score }!! }
-                
-                beam = uniqueBeam.sortedByDescending { it.score }.take(BEAM_WIDTH)
+                // 4. Prune the Beam
+                // Sort by score and keep only the top BEAM_WIDTH candidates
+                beam = nextBeam.sortedByDescending { it.score }.take(BEAM_WIDTH)
             }
 
-            // 6. FINALIZE & RANK
+            // 5. Finalize and Rank
             val results = beam.mapNotNull { hyp ->
                 val freq = dictionary.getFrequencyAtNode(hyp.nodeOffset)
                 if (freq > 0) {
-                    // FREQUENCY BOOST (small positive offset to negative penalty)
-                    // freq=255 → ln(256)*0.5 = +2.77
-                    // This moves score from (e.g.) -2.0 to +0.77
-                    val freqBoost = ln(freq.toDouble() + 1) * FREQ_WEIGHT
-                    val finalScore = hyp.score + freqBoost
-                    
-                    // AGGRESSIVE FILTERING
-                    // If path penalty too high (< -15.0), filter even with frequency boost
-                    if (hyp.score < MIN_PATH_SCORE) {
-                        LogUtil.d(TAG, "❌ Filtered: '${hyp.text}' (penalty=${String.format("%.2f", hyp.score)} < $MIN_PATH_SCORE)")
-                        null
-                    } else {
-                        Pair(hyp.text, finalScore)
-                    }
+                    // Combine Path Score with Dictionary Frequency (Unigram Probability)
+                    // This helps prefer common words like "the" over "thg"
+                    val finalScore = hyp.score + ln(freq.toDouble())
+                    Pair(hyp.text, finalScore)
                 } else {
                     null // Not a complete word
                 }
             }
 
+            // Return sorted, unique results
             val topResults = results.sortedByDescending { it.second }
                 .distinctBy { it.first }
                 .take(10)
             
-            LogUtil.d(TAG, "✅ V4 Generated ${topResults.size} candidates: ${topResults.take(3).map { "${it.first}(${String.format("%.2f", it.second)})" }}")
-            
+            LogUtil.d(TAG, "✅ Generated ${topResults.size} candidates: ${topResults.take(3).map { it.first }}")
             return topResults
-
+            
         } catch (e: Exception) {
-            LogUtil.e(TAG, "Error in V4 swipe decoding", e)
+            LogUtil.e(TAG, "Error decoding swipe path", e)
             return emptyList()
         }
     }
 
     /**
-     * Calculate distance with aspect ratio correction
-     * Ensures vertical and horizontal distances are weighted equally
+     * Calculate Euclidean distance between two points
      */
     private fun calculateDistance(x1: Float, y1: Float, x2: Float, y2: Float): Float {
-        val dx = x1 - x2
-        val dy = (y1 - y2) * aspectRatio // Apply aspect ratio correction to Y-axis
-        return sqrt(dx * dx + dy * dy)
+        return sqrt((x1 - x2).pow(2) + (y1 - y2).pow(2))
     }
-    
+
     /**
-     * Compute path score (backward compatibility)
-     * Not used in V4 Beam Search but kept for compatibility
+     * Compute path score for a candidate word (for compatibility with existing code)
+     * This is kept for backward compatibility but isn't used in the new Beam Search approach
+     * 
+     * @param word Candidate word to score
+     * @param path SwipePath with touch points
+     * @return Confidence score (0.0-1.0)
      */
     fun computePathScore(word: String, path: SwipePath): Double {
         if (word.isEmpty() || path.points.isEmpty()) return 0.0
         
         try {
+            // Simple distance-based scoring for compatibility
             var totalDistance = 0.0
             var count = 0
-        
-        val wordChars = word.lowercase().toCharArray()
+            
+            val wordChars = word.lowercase().toCharArray()
             val sampleIndices = (0 until wordChars.size).map { i ->
                 (i * (path.points.size - 1).toFloat() / (wordChars.size - 1).coerceAtLeast(1)).toInt()
-        }
-        
-        for (i in sampleIndices.indices) {
+            }
+            
+            for (i in sampleIndices.indices) {
                 if (i >= wordChars.size || sampleIndices[i] >= path.points.size) continue
-            
+                
                 val point = path.points[sampleIndices[i]]
-            val expectedChar = wordChars[i]
+                val expectedChar = wordChars[i]
                 val expectedPos = keyLayout[expectedChar] ?: continue
-            
+                
                 val distance = calculateDistance(
                     point.first, point.second,
                     expectedPos.first, expectedPos.second
@@ -277,11 +177,12 @@ class SwipeDecoderML(
                 
                 totalDistance += distance
                 count++
-        }
-        
-        if (count == 0) return 0.0
-        
-        val avgDistance = totalDistance / count
+            }
+            
+            if (count == 0) return 0.0
+            
+            val avgDistance = totalDistance / count
+            // Convert to 0-1 score (closer = higher score)
             return max(0.0, 1.0 - (avgDistance / 0.5))
             
         } catch (e: Exception) {

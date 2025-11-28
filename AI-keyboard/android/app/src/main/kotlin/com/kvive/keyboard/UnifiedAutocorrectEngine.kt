@@ -157,51 +157,6 @@ class UnifiedAutocorrectEngine(
         return swipeDecoderML
     }
 
-    /**
-     * 🔥 Helper to filter garbage words (foreign words, junk combinations)
-     * Kills "pikkujoulut", "ioljobs", "rtti", "yuu", etc.
-     */
-    private fun isValidEnglishLike(word: String): Boolean {
-        // 1. Length check: English words are rarely > 15 letters
-        if (word.length > 15) {
-            Log.d(TAG, "❌ Rejected (too long): $word")
-            return false
-        }
-        
-        // 2. Vowel check: English words need vowels (a, e, i, o, u, y)
-        val vowels = setOf('a', 'e', 'i', 'o', 'u', 'y')
-        if (word.none { it in vowels }) {
-            Log.d(TAG, "❌ Rejected (no vowels): $word")
-            return false
-        }
-        
-        // 3. Triple repeat check: No English word has 3+ identical consecutive chars
-        // Kills "rtti", "aaaa", etc.
-        for (i in 0 until word.length - 2) {
-            if (word[i] == word[i + 1] && word[i] == word[i + 2]) {
-                Log.d(TAG, "❌ Rejected (triple repeat): $word")
-                return false
-            }
-        }
-        
-        // 4. Excessive consonant clusters check (optional)
-        // English rarely has 5+ consonants in a row
-        var consonantCount = 0
-        for (char in word) {
-            if (char !in vowels) {
-                consonantCount++
-                if (consonantCount >= 5) {
-                    Log.d(TAG, "❌ Rejected (consonant cluster): $word")
-                    return false
-                }
-            } else {
-                consonantCount = 0
-            }
-        }
-        
-        return true
-    }
-
     private fun loadMappedTrie(lang: String) {
         trieDictionary = try {
             MappedTrieDictionary(context, lang)
@@ -997,7 +952,7 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
             Log.d(TAG, "🔄 Getting swipe suggestions from Firebase data + ML decoder")
             
             // ========== Phase 1: ML-Based Swipe Decoding ==========
-            // Try Beam Search decoder first (Gboard-quality V3)
+            // Try Beam Search decoder first (Gboard-quality)
             val decoder = getSwipeDecoder()
             val beamSearchCandidates = if (decoder != null) {
                 decoder.decode(path)
@@ -1005,46 +960,12 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
                 emptyList()
             }
             
-            // ✅ V3 LOGIC: Use confidence gaps for auto-commit
+            // If Beam Search produces results, use them as primary
             val result = if (beamSearchCandidates.isNotEmpty()) {
-                Log.d(TAG, "🚀 V3 Beam Search decoder candidates (raw): ${beamSearchCandidates.take(5).map { "${it.first}(${String.format("%.2f", it.second)})" }}")
-                
-                // 🔥 NEW: FILTER GARBAGE WORDS
-                // Remove non-English-like words (foreign words, junk like "rtti", "yuu")
-                val filteredCandidates = beamSearchCandidates.filter { (word, _) ->
-                    isValidEnglishLike(word)
-                }
-                
-                Log.d(TAG, "✅ After English filter: ${filteredCandidates.take(5).map { "${it.first}(${String.format("%.2f", it.second)})" }}")
-                
-                // Calculate confidence gaps between candidates
-                filteredCandidates.mapIndexed { index, (word, score) ->
-                    // Calculate "Confidence Gap"
-                    // V4: Gap threshold reduced to 1.5 (was 2.0) because penalty-based scoring is tighter
-                    // If the top word score is > 1.5 higher than the second word, we are confident
-                    val nextScore = filteredCandidates.getOrNull(index + 1)?.second ?: (score - 10.0)
-                    val confidenceGap = score - nextScore
-                    val isConfident = confidenceGap > 1.5  // Reduced from 2.0 for V4
-                    
-                    // Calculate normalized confidence (0.0-1.0)
-                    val confidence = when {
-                        index == 0 && isConfident -> 1.0  // Top result with big gap
-                        index == 0 -> 0.85                // Top result, normal gap
-                        index == 1 -> 0.6                 // Second result
-                        else -> 0.4                       // Other results
-                    }
-                    
-                    Log.d(TAG, "  $word: score=${String.format("%.2f", score)}, gap=${String.format("%.2f", confidenceGap)}, confident=$isConfident")
-                    
-                    Suggestion(
-                        text = word,
-                        score = score,
-                        source = SuggestionSource.SWIPE,
-                        // Force auto-commit if it's the top result and we are confident
-                        isAutoCommit = (index == 0 && isConfident),
-                        confidence = confidence
-                    )
-                }.take(5)
+                Log.d(TAG, "🚀 Beam Search decoder candidates: ${beamSearchCandidates.take(5).map { it.first }}")
+                beamSearchCandidates
+                    .map { (word, score) -> Suggestion(word, score, SuggestionSource.SWIPE) }
+                    .take(5)
             } else {
                 // Fallback to geometric decoder if Beam Search fails
                 Log.d(TAG, "⚠️ Beam Search unavailable, falling back to geometric decoder")
@@ -1054,7 +975,7 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
                     .take(5)
             }
             
-            Log.d(TAG, "✅ Swipe suggestions: ${result.map { "${it.text}(conf=${String.format("%.2f", it.confidence)}, auto=${it.isAutoCommit})" }.joinToString(", ")}")
+            Log.d(TAG, "✅ Swipe candidates: ${result.map { "${it.text}(${String.format("%.2f", it.score)})" }.joinToString(", ")}")
             
             suggestionCache.put(cacheKey, result)
             return result
