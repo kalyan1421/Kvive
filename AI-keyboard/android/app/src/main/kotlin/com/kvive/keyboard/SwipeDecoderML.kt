@@ -6,22 +6,22 @@ import com.kvive.keyboard.utils.LogUtil
 import kotlin.math.*
 
 /**
- * SwipeDecoderML - Gboard-quality swipe decoder using Beam Search
+ * SwipeDecoderML - V3 (Gboard-Quality)
  * 
- * Uses graph traversal through the dictionary trie combined with spatial scoring
- * to find the most likely word given a swipe path.
+ * Major Upgrades:
+ * 1. Directional Scoring: Compares finger vector vs. key-to-key vector
+ * 2. Duplicate Suppression: Prevents "rtti" when you meant "ratio"
+ * 3. Frequency Boosting: Common words overpower perfect geometric matches
+ * 4. Corner Cutting: Higher Sigma (0.18) allows cutting corners
  * 
- * Algorithm: Beam Search with Gaussian spatial model
- * - Maintains top N hypotheses (partial words) at each step
- * - For each touch point, expands hypotheses by adding possible next letters
- * - Scores based on spatial proximity (Gaussian) + dictionary frequency
- * - Prunes search space by keeping only the top BEAM_WIDTH candidates
- * 
- * Features:
- * - Handles "corner cutting" (e.g., swiping from E to O through R)
- * - Robust to imprecise paths
- * - Combines spatial and linguistic knowledge
- * - Real-time performance (~10ms for typical words)
+ * Algorithm: Beam Search with spatial + directional + frequency scoring
+ * - Maintains beam of top 30 hypotheses
+ * - Scores based on:
+ *   * Spatial proximity (Gaussian)
+ *   * Directional alignment (vector dot product)
+ *   * Dictionary frequency (log-scaled)
+ * - Suppresses duplicate letters unless intentional dwell
+ * - Length-normalized scoring for fair comparison
  */
 class SwipeDecoderML(
     private val context: Context,
@@ -30,111 +30,165 @@ class SwipeDecoderML(
 ) {
     companion object {
         private const val TAG = "SwipeDecoderML"
-        private const val BEAM_WIDTH = 25 // Keep top 25 candidates alive
-        private const val SIGMA = 0.12f   // Spatial tolerance (key radius roughly)
         
-        // Penalty for keeping hypothesis without adding a letter
-        private const val WAIT_PENALTY = 0.5
+        // Tuning Parameters (Gboard-like behavior)
+        private const val BEAM_WIDTH = 30       // Increased search width
+        private const val SIGMA = 0.18f         // Increased tolerance for corner cutting (was 0.12)
+        private const val WAIT_PENALTY = 2.5    // Higher penalty for "waiting" on a letter (was 0.5)
+        private const val DIRECTION_WEIGHT = 4.0 // Weight for vector alignment
+        private const val FREQ_WEIGHT = 2.5     // Weight for dictionary frequency
     }
 
-    // A "Hypothesis" represents one possible word being formed
+    /**
+     * Hypothesis represents a partial word being formed during beam search
+     * @param text Current text of this hypothesis
+     * @param score Accumulated score (higher is better)
+     * @param nodeOffset Position in the dictionary Trie
+     * @param lastChar Last character added (for duplicate suppression)
+     * @param pathIndex Current index in the swipe path
+     */
     data class Hypothesis(
         val text: String,
-        val score: Double, // Log probability (higher is better, usually negative)
-        val nodeOffset: Int, // Current position in the Trie
-        val lastChar: Char?
+        val score: Double,
+        val nodeOffset: Int,
+        val lastChar: Char?,
+        val pathIndex: Int
     )
 
     /**
-     * Decode swipe path to candidate words with confidence scores
-     * Returns list of (word, score) pairs sorted by score (higher is better)
+     * Decode swipe path to candidate words using advanced Beam Search
      * 
      * @param path SwipePath containing normalized touch points
-     * @return List of word candidates with scores
+     * @return List of (word, score) pairs sorted by confidence (higher is better)
      */
     fun decode(path: SwipePath): List<Pair<String, Double>> {
         if (path.points.size < 3) {
             LogUtil.w(TAG, "Path too short for decoding: ${path.points.size} points")
             return emptyList()
         }
-
+        
         try {
-            LogUtil.d(TAG, "🔍 Decoding swipe path with ${path.points.size} points")
+            LogUtil.d(TAG, "🔍 V3 Decoding swipe path with ${path.points.size} points")
             
-            // 1. Start with an empty root hypothesis
-            // 0 is usually the root offset in MappedTrie
-            var beam = listOf(Hypothesis("", 0.0, 0, null))
-
-            // 2. Iterate through sampled points in the swipe path
-            // We skip points to improve performance (e.g., process every 2nd point)
-            for (i in path.points.indices step 2) {
-                val (touchX, touchY) = path.points[i]
+            // 1. Initialize Beam with empty hypothesis at Trie root
+            var beam = listOf(Hypothesis("", 0.0, 0, null, 0))
+            
+            // 2. Iterate through path (process every 2nd point for performance)
+            for (i in 1 until path.points.size step 2) {
+                val currPoint = path.points[i]
+                val prevPoint = path.points[i - 1] // Use actual previous point for vector
+                
                 val nextBeam = mutableListOf<Hypothesis>()
 
-                // 3. Expand every active hypothesis
+                // Calculate finger direction vector (for directional scoring)
+                val fingerDx = currPoint.first - prevPoint.first
+                val fingerDy = currPoint.second - prevPoint.second
+                val fingerLen = sqrt(fingerDx * fingerDx + fingerDy * fingerDy)
+
                 for (hyp in beam) {
-                    // Get all valid next letters from the dictionary
+                    // --- STRATEGY 1: STAY (Dwell) ---
+                    // User is still on the same key
+                    // Penalize to force movement, but allow for intentional long presses
+                    nextBeam.add(hyp.copy(
+                        score = hyp.score - WAIT_PENALTY,
+                        pathIndex = i
+                    ))
+
+                    // --- STRATEGY 2: MOVE (Next Letter) ---
                     val children = dictionary.getChildren(hyp.nodeOffset)
 
                     for ((char, childOffset) in children) {
                         val keyPos = keyLayout[char] ?: continue
                         
-                        // -- SPATIAL SCORE --
+                        // 1. Spatial Score (Distance)
                         // How close is the touch point to this key?
-                        val dist = calculateDistance(touchX, touchY, keyPos.first, keyPos.second)
-                        
-                        // Gaussian score: e^(-dist^2 / 2*sigma^2)
-                        // We work in Log space to avoid tiny numbers: -dist^2 / C
+                        val dist = calculateDistance(currPoint.first, currPoint.second, keyPos.first, keyPos.second)
                         val spatialScore = -(dist * dist) / (2 * SIGMA * SIGMA)
 
-                        // Create new hypothesis
-                        val newHyp = Hypothesis(
+                        // 2. Directional Score (Alignment)
+                        // Does finger movement align with expected key-to-key movement?
+                        var directionScore = 0.0
+                        if (hyp.lastChar != null && fingerLen > 0.01) {
+                            val lastKeyPos = keyLayout[hyp.lastChar]
+                            if (lastKeyPos != null) {
+                                // Ideal vector from Last Key -> Candidate Key
+                                val idealDx = keyPos.first - lastKeyPos.first
+                                val idealDy = keyPos.second - lastKeyPos.second
+                                val idealLen = sqrt(idealDx * idealDx + idealDy * idealDy)
+                                
+                                if (idealLen > 0) {
+                                    // Dot product for alignment (-1.0 to 1.0)
+                                    val dot = (fingerDx * idealDx + fingerDy * idealDy) / (fingerLen * idealLen)
+                                    // Reward positive alignment, slightly penalize negative
+                                    directionScore = if (dot > 0) dot * DIRECTION_WEIGHT else dot * DIRECTION_WEIGHT * 0.5
+                                }
+                            }
+                        }
+
+                        // 3. Duplicate Suppression
+                        // Don't allow adding the same letter again unless we moved away significantly or dwelled long
+                        // This prevents "rtti" when you mean "rt" or "ratio"
+                        if (char == hyp.lastChar) {
+                            // Only allow double letters if spatial score is very high (strong dwell)
+                            // Otherwise heavily penalize "jitter" repeats
+                            if (spatialScore < -0.5) continue 
+                        }
+
+                        val newScore = hyp.score + spatialScore + directionScore
+
+                        // Pruning: fast fail for low scores
+                        if (nextBeam.isNotEmpty() && newScore < nextBeam[0].score - 15.0) continue
+
+                        nextBeam.add(Hypothesis(
                             text = hyp.text + char,
-                            score = hyp.score + spatialScore,
+                            score = newScore,
                             nodeOffset = childOffset,
-                            lastChar = char
-                        )
-                        nextBeam.add(newHyp)
+                            lastChar = char,
+                            pathIndex = i
+                        ))
                     }
-                    
-                    // CRITICAL: Also keep the *current* hypothesis alive without adding a letter.
-                    // (The user might be dragging their finger *towards* the next letter but hasn't reached it).
-                    // We apply a small penalty to prevent infinite waiting.
-                    nextBeam.add(hyp.copy(score = hyp.score - WAIT_PENALTY))
                 }
 
-                // 4. Prune the Beam
-                // Sort by score and keep only the top BEAM_WIDTH candidates
-                beam = nextBeam.sortedByDescending { it.score }.take(BEAM_WIDTH)
+                // Prune Beam
+                // Group by NodeOffset to merge identical paths (e.g. distinct paths to same word prefix)
+                val uniqueBeam = nextBeam
+                    .groupBy { it.nodeOffset }
+                    .map { (_, list) -> list.maxByOrNull { it.score }!! }
+                
+                beam = uniqueBeam.sortedByDescending { it.score }.take(BEAM_WIDTH)
             }
 
-            // 5. Finalize and Rank
+            // 3. Finalize and Rank Results
             val results = beam.mapNotNull { hyp ->
                 val freq = dictionary.getFrequencyAtNode(hyp.nodeOffset)
                 if (freq > 0) {
-                    // Combine Path Score with Dictionary Frequency (Unigram Probability)
-                    // This helps prefer common words like "the" over "thg"
-                    val finalScore = hyp.score + ln(freq.toDouble())
+                    // V3: Massive Frequency Boost
+                    // log(freq) is roughly 0 to 5.5 (for freq 0-255)
+                    // Multiplying by 2.5 makes freq score ~0-14, comparable to path scores
+                    val freqScore = ln(freq.toDouble() + 1) * FREQ_WEIGHT
+                    
+                    // Length Normalization: Average score per character to be fair to long words
+                    val lengthNorm = hyp.text.length.coerceAtLeast(1).toDouble()
+                    val finalScore = (hyp.score / lengthNorm) + freqScore
+                    
                     Pair(hyp.text, finalScore)
                 } else {
-                    null // Not a complete word
+                    null
                 }
             }
 
-            // Return sorted, unique results
-            val topResults = results.sortedByDescending { it.second }
-                .distinctBy { it.first }
-                .take(10)
+            val topResults = results.sortedByDescending { it.second }.distinctBy { it.first }.take(10)
             
-            LogUtil.d(TAG, "✅ Generated ${topResults.size} candidates: ${topResults.take(3).map { it.first }}")
+            LogUtil.d(TAG, "✅ V3 Generated ${topResults.size} candidates: ${topResults.take(3).map { "${it.first}(${String.format("%.2f", it.second)})" }}")
+            
             return topResults
-            
+
         } catch (e: Exception) {
-            LogUtil.e(TAG, "Error decoding swipe path", e)
+            LogUtil.e(TAG, "Error in V3 swipe decoding", e)
             return emptyList()
         }
     }
-
+    
     /**
      * Calculate Euclidean distance between two points
      */
@@ -144,7 +198,7 @@ class SwipeDecoderML(
 
     /**
      * Compute path score for a candidate word (for compatibility with existing code)
-     * This is kept for backward compatibility but isn't used in the new Beam Search approach
+     * This is kept for backward compatibility but isn't used in the new V3 Beam Search
      * 
      * @param word Candidate word to score
      * @param path SwipePath with touch points
@@ -157,19 +211,19 @@ class SwipeDecoderML(
             // Simple distance-based scoring for compatibility
             var totalDistance = 0.0
             var count = 0
-            
-            val wordChars = word.lowercase().toCharArray()
+        
+        val wordChars = word.lowercase().toCharArray()
             val sampleIndices = (0 until wordChars.size).map { i ->
                 (i * (path.points.size - 1).toFloat() / (wordChars.size - 1).coerceAtLeast(1)).toInt()
-            }
-            
-            for (i in sampleIndices.indices) {
+        }
+        
+        for (i in sampleIndices.indices) {
                 if (i >= wordChars.size || sampleIndices[i] >= path.points.size) continue
-                
+            
                 val point = path.points[sampleIndices[i]]
-                val expectedChar = wordChars[i]
+            val expectedChar = wordChars[i]
                 val expectedPos = keyLayout[expectedChar] ?: continue
-                
+            
                 val distance = calculateDistance(
                     point.first, point.second,
                     expectedPos.first, expectedPos.second
@@ -177,11 +231,11 @@ class SwipeDecoderML(
                 
                 totalDistance += distance
                 count++
-            }
-            
-            if (count == 0) return 0.0
-            
-            val avgDistance = totalDistance / count
+        }
+        
+        if (count == 0) return 0.0
+        
+        val avgDistance = totalDistance / count
             // Convert to 0-1 score (closer = higher score)
             return max(0.0, 1.0 - (avgDistance / 0.5))
             
