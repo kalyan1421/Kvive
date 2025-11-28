@@ -593,6 +593,48 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
         val lower = input.lowercase()
         
         // ==============================================================================
+        // ✅ FIX: Force Common Contractions (Bypass Dictionary Check)
+        // These are so common that we force them regardless of dictionary contents
+        // NOTE: Excludes "were", "well", "wed", "its", "lets", "ill", "id" as they are valid words
+        // ==============================================================================
+        when (lower) {
+            "dont" -> return Suggestion("don't", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "cant" -> return Suggestion("can't", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "wont" -> return Suggestion("won't", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "im" -> return Suggestion("I'm", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "ive" -> return Suggestion("I've", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "youre" -> return Suggestion("you're", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "youve" -> return Suggestion("you've", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "youll" -> return Suggestion("you'll", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "youd" -> return Suggestion("you'd", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "theyre" -> return Suggestion("they're", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "theyve" -> return Suggestion("they've", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "theyll" -> return Suggestion("they'll", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "theyd" -> return Suggestion("they'd", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "weve" -> return Suggestion("we've", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "hes" -> return Suggestion("he's", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "shes" -> return Suggestion("she's", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "thats" -> return Suggestion("that's", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "whats" -> return Suggestion("what's", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "whos" -> return Suggestion("who's", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "heres" -> return Suggestion("here's", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "theres" -> return Suggestion("there's", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "wheres" -> return Suggestion("where's", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "isnt" -> return Suggestion("isn't", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "arent" -> return Suggestion("aren't", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "wasnt" -> return Suggestion("wasn't", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "werent" -> return Suggestion("weren't", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "hasnt" -> return Suggestion("hasn't", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "havent" -> return Suggestion("haven't", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "hadnt" -> return Suggestion("hadn't", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "doesnt" -> return Suggestion("doesn't", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "didnt" -> return Suggestion("didn't", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "couldnt" -> return Suggestion("couldn't", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "wouldnt" -> return Suggestion("wouldn't", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+            "shouldnt" -> return Suggestion("shouldn't", 1.0, SuggestionSource.CORRECTION, true, 1.0)
+        }
+        
+        // ==============================================================================
         // 🚀 CRITICAL UPDATE: EXPLICIT CORRECTIONS (Your "Clean & Perfect" Logic)
         // This block forces the engine to respect your cleaned binary file above all else.
         // ==============================================================================

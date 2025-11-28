@@ -565,6 +565,15 @@ class UnifiedSuggestionController(
     }
     
     /**
+     * 🔥 FIX: Force clear and get fresh next-word predictions
+     * Call this after committing a word to ensure suggestions update
+     */
+    fun onWordCommitted() {
+        suggestionCache.evictAll() // Clear ALL cache to force fresh suggestions
+        LogUtil.d(TAG, "📝 Word committed - cache cleared for fresh suggestions")
+    }
+    
+    /**
      * Notify that a new clipboard item was copied
      * Call this when user copies something to show it in suggestions
      */

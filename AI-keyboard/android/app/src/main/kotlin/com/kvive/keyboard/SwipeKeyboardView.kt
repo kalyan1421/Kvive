@@ -50,6 +50,12 @@ class SwipeKeyboardView @JvmOverloads constructor(
         private const val CURSOR_CONTROL_SENSITIVITY = 15f
         private const val WORD_DELETE_VELOCITY_THRESHOLD = -500f
         private const val PERIOD_INSERT_VELOCITY_THRESHOLD = 500f
+        
+        // 🔥 FIX: Swipe processing throttle to prevent lag
+        private const val SWIPE_PROCESS_THROTTLE = 40L // Process every 40ms (~25fps) max
+        
+        // Real-time preview throttling  
+        private const val PREVIEW_UPDATE_DELAY = 80L // Update suggestions every 80ms (~12fps) while swiping
     }
     
     interface SwipeListener {
@@ -57,7 +63,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
             swipedKeys: List<Int>, 
             swipePattern: String, 
             keySequence: List<Int> = swipedKeys,
-            swipePath: List<Pair<Float, Float>> = emptyList() // NEW: actual finger coordinates
+            swipePath: List<Pair<Float, Float>> = emptyList(), // actual finger coordinates
+            isPreview: Boolean = false // ✅ NEW: Flag to distinguish preview vs final
         )
         fun onSwipeStarted()
         fun onSwipeEnded()
@@ -66,6 +73,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
     private var swipeEnabled = true
     private var isSwipeInProgress = false
     private val swipePoints = mutableListOf<FloatArray>()
+    private var lastSwipeProcessTime = 0L // 🔥 FIX: Throttle swipe processing
+    private var lastPreviewTime = 0L // Real-time preview throttling
     private val swipePaint = Paint().apply {
         style = Paint.Style.STROKE
         isAntiAlias = true
@@ -1302,7 +1311,29 @@ class SwipeKeyboardView @JvmOverloads constructor(
             
             MotionEvent.ACTION_MOVE -> {
                 if (isSwipeInProgress) {
-                    continueSwipe(x, y)
+                    val now = System.currentTimeMillis()
+                    
+                    // 🔥 FIX: Throttle point collection to prevent lag
+                    if (now - lastSwipeProcessTime > SWIPE_PROCESS_THROTTLE) {
+                        continueSwipe(x, y)
+                        lastSwipeProcessTime = now
+                    }
+                    
+                    // ✅ FIX: Send Real-time Preview INDEPENDENTLY of point collection
+                    // This ensures smooth suggestion updates while swiping
+                    if (now - lastPreviewTime > PREVIEW_UPDATE_DELAY && swipePoints.size >= 3) {
+                        val normalizedPath = buildNormalizedPath(swipePoints)
+                        // Notify service this is just a PREVIEW (finger still down)
+                        swipeListener?.onSwipeDetected(
+                            emptyList(),
+                            "preview",
+                            emptyList(),
+                            normalizedPath,
+                            isPreview = true
+                        )
+                        lastPreviewTime = now
+                    }
+                    
                     true // Consume the event
                 } else {
                     // Check if user has moved enough to start swipe
@@ -1314,6 +1345,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
                         
                         if (distance > SWIPE_START_THRESHOLD) {
                             isSwipeInProgress = true
+                            lastSwipeProcessTime = System.currentTimeMillis()
+                            lastPreviewTime = System.currentTimeMillis()
                             swipeListener?.onSwipeStarted()
                             continueSwipe(x, y)
                             return true
@@ -1442,7 +1475,8 @@ class SwipeKeyboardView @JvmOverloads constructor(
         // Convert swipePoints to normalized coordinates before passing to listener
         val normalizedPath = buildNormalizedPath(swipePoints)
         
-        swipeListener?.onSwipeDetected(swipedKeys, swipePattern, keySequence, normalizedPath)
+        // ✅ FINAL swipe event (finger lifted) - isPreview = false
+        swipeListener?.onSwipeDetected(swipedKeys, swipePattern, keySequence, normalizedPath, isPreview = false)
     }
     
     /**

@@ -478,7 +478,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
      * Callback interfaces for integration with AIKeyboardService
      */
     interface SwipeListener {
-        fun onSwipeDetected(sequence: List<Int>, normalizedPath: List<Pair<Float, Float>>)
+        fun onSwipeDetected(sequence: List<Int>, normalizedPath: List<Pair<Float, Float>>, isPreview: Boolean = false)
         fun onSwipeStarted()
         fun onSwipeEnded()
     }
@@ -2115,7 +2115,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             val keySeq = keyboardGridView?.resolveKeySequence(normalized) ?: emptyList()
             
             if (swipeEnabled) {
-                swipeListener?.onSwipeDetected(keySeq, normalized)
+                swipeListener?.onSwipeDetected(keySeq, normalized, isPreview = false) // Final swipe
                 handleSwipeSuggestions(keySeq, normalized)
             }
         }
@@ -4558,7 +4558,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 (meetsDistance || meetsVelocity)
 
             if (treatAsTyping) {
-                parentView.swipeListener?.onSwipeDetected(keySeq, normalized)
+                parentView.swipeListener?.onSwipeDetected(keySeq, normalized, isPreview = false) // Final swipe
                 parentView.handleSwipeSuggestions(keySeq, normalized)
                 if (parentView.showGlideTrailSetting) {
                     scheduleTrailFade()
@@ -4694,7 +4694,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             
             val keySeq = resolveKeySequence(normalized)
             if (parentView.swipeEnabled) {
-                parentView.swipeListener?.onSwipeDetected(keySeq, normalized)
+                parentView.swipeListener?.onSwipeDetected(keySeq, normalized, isPreview = false) // Final swipe
                 parentView.swipeListener?.onSwipeEnded()
             }
             fingerPoints.clear()

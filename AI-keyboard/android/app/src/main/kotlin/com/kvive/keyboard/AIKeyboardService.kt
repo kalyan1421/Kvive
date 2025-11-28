@@ -2605,7 +2605,7 @@ class AIKeyboardService : InputMethodService(),
             
             // Connect swipe listener with UnifiedAutocorrectEngine integration
             setSwipeListener(object : UnifiedKeyboardView.SwipeListener {
-                override fun onSwipeDetected(sequence: List<Int>, normalizedPath: List<Pair<Float, Float>>) {
+                override fun onSwipeDetected(sequence: List<Int>, normalizedPath: List<Pair<Float, Float>>, isPreview: Boolean) {
                     // Use UnifiedAutocorrectEngine for swipe suggestions
                     if (::autocorrectEngine.isInitialized) {
                         val swipeSuggestions = autocorrectEngine.suggestForSwipe(sequence, normalizedPath)
@@ -2614,8 +2614,8 @@ class AIKeyboardService : InputMethodService(),
                         }
                     }
                     
-                    // Legacy compatibility
-                    this@AIKeyboardService.onSwipeDetected(sequence, "", sequence, normalizedPath)
+                    // Pass to main handler with isPreview flag
+                    this@AIKeyboardService.onSwipeDetected(sequence, "", sequence, normalizedPath, isPreview)
                 }
                 
                 override fun onSwipeStarted() {
@@ -3792,6 +3792,20 @@ class AIKeyboardService : InputMethodService(),
     private fun handleCharacter(primaryCode: Int, ic: InputConnection) {
         var code = primaryCode.toChar()
         
+        // ✅ FIX: Auto-space before typing if following a swipe
+        if (lastInputWasSwipe && Character.isLetter(primaryCode)) {
+            ic.commitText(" ", 1)
+            // Commit the swiped word to history and learn it
+            if (currentWord.isNotEmpty()) {
+                onWordCommitted(currentWord)
+                wordHistory.add(currentWord)
+                if (wordHistory.size > 20) wordHistory.removeAt(0)
+            }
+            currentWord = "" // Reset for new word
+            lastInputWasSwipe = false
+            lastCommittedSwipeWord = ""
+        }
+        
         // Enhanced character handling with CapsShiftManager (via unified controller)
         if (::unifiedController.isInitialized) {
             // Process through unified controller which delegates to caps manager
@@ -4354,6 +4368,27 @@ class AIKeyboardService : InputMethodService(),
             updateKeyboardState()
             return
         }
+        
+        // ✅ FIX: Delete entire swiped word on backspace (Gboard behavior)
+        if (lastInputWasSwipe && lastCommittedSwipeWord.isNotEmpty()) {
+            val wordLength = lastCommittedSwipeWord.length
+            ic.deleteSurroundingText(wordLength, 0)
+            Log.d(TAG, "🗑️ Deleted entire swipe word: '$lastCommittedSwipeWord' ($wordLength chars)")
+            
+            // Reset swipe state
+            lastInputWasSwipe = false
+            lastCommittedSwipeWord = ""
+            currentWord = ""
+            
+            // Update suggestions
+            if (areSuggestionsActive()) {
+                updateAISuggestions()
+            }
+            return
+        }
+        
+        // ✅ Reset swipe flag on backspace
+        lastInputWasSwipe = false
 
         val currentTime = System.currentTimeMillis()
         
@@ -4592,6 +4627,34 @@ class AIKeyboardService : InputMethodService(),
      */
     private fun handleSpace(ic: InputConnection) {
         var dictionaryExpanded = false
+        
+        // ✅ FIX: If we just finished a swipe (currentWord is set), finalize it
+        if (currentWord.isNotEmpty() && lastCommittedSwipeWord == currentWord) {
+            // Space finalizes the swipe word - learn it and add to history
+            onWordCommitted(currentWord)
+            wordHistory.add(currentWord)
+            if (wordHistory.size > 20) {
+                wordHistory.removeAt(0)
+            }
+            if (::unifiedSuggestionController.isInitialized) {
+                unifiedSuggestionController.onWordCommitted()
+            }
+            currentWord = ""
+            lastCommittedSwipeWord = ""
+            lastInputWasSwipe = false
+            
+            // Commit the space
+            commitSpaceWithDoublePeriod(ic)
+            applyPostSpaceEffects(ic)
+            
+            // ✅ This triggers Next Word Prediction
+            updateAISuggestions()
+            return
+        }
+        
+        // ✅ Reset swipe flag on any space press
+        lastInputWasSwipe = false
+        lastCommittedSwipeWord = ""
         
         // Check for dictionary expansion FIRST (before processing word)
         if (currentWord.isNotEmpty() && dictionaryEnabled) {
@@ -5273,28 +5336,12 @@ class AIKeyboardService : InputMethodService(),
             return
         }
         
-        // ✅ FIX 1: Disable autocorrect during typing - only show suggestions
-        // Only run autocorrect when space/punctuation is typed
-        if (!lastCharIsSpaceOrPunctuation()) {
-            // Cancel previous job to debounce
-            suggestionUpdateJob?.cancel()
-            suggestionUpdateJob = coroutineScope.launch {
-                delay(suggestionDebounceMs)
-                if (isActive) {
-                    // Show suggestions only during typing
-                    fetchUnifiedSuggestions()
-                }
-            }
-            return
-        }
-        
-        // If we reach here, last char is space/punctuation - autocorrect will be handled by separator logic
-        // Cancel previous job to debounce
+        // ✅ FIX: Always fetch suggestions, even if last char is space
+        // The logic inside fetchUnifiedSuggestions handles empty words correctly (next-word prediction)
         suggestionUpdateJob?.cancel()
         suggestionUpdateJob = coroutineScope.launch {
             delay(suggestionDebounceMs)
             if (isActive) {
-                // ✅ Use new unified suggestion method (simplified)
                 fetchUnifiedSuggestions()
             }
         }
@@ -5476,18 +5523,9 @@ class AIKeyboardService : InputMethodService(),
         // Launch coroutine to fetch suggestions
         coroutineScope.launch {
             try {
-                // ✅ PATCH 2: Skip next-word prediction during typing
-                // Only show typing suggestions when user is actively typing (word not empty)
-                if (word.isNotEmpty() ) {
-                    // Word too short for meaningful suggestions
-                    withContext(Dispatchers.Main) {
-                        updateSuggestionUI(listOf(word))
-                    }
-                    return@launch
-                }
-                
+                // ✅ FIX: Allow single letter suggestions (e.g. 't' -> 'the', 'to', 'that')
                 if (word.isNotEmpty()) {
-                    // User is typing - show ONLY typing suggestions (no next-word predictions)
+                    // User is typing - show typing suggestions (works for single letters too)
                     if (::autocorrectEngine.isInitialized) {
                         val typingSuggestions = autocorrectEngine.suggestForTyping(word, context)
                         val suggestionTexts = typingSuggestions.take(suggestionCount).map { it.text }
@@ -5672,13 +5710,17 @@ class AIKeyboardService : InputMethodService(),
             Log.d(TAG, "Applied emoji suggestion: '$cleanSuggestion'")
         } else {
             // Handle word suggestion - replace current word
+            // ✅ FIX: Handle swipe word replacement - check if we're replacing a swipe word
+            val isReplacingSwipeWord = lastCommittedSwipeWord.isNotEmpty() && currentWord == lastCommittedSwipeWord
+            
             if (currentWord.isNotEmpty()) {
                 Log.d(TAG, "Deleting current word of length: ${currentWord.length}")
                 ic.deleteSurroundingText(currentWord.length, 0)
             }
             
-            Log.d(TAG, "Committing text: '$cleanSuggestion'")
-            ic.commitText(cleanSuggestion, 1)
+            // ✅ FIX: Add space automatically after suggestion
+            Log.d(TAG, "Committing text: '$cleanSuggestion' with trailing space")
+            ic.commitText("$cleanSuggestion ", 1)
             
             // Enhanced learning from user selection 
             coroutineScope.launch {
@@ -5702,6 +5744,16 @@ class AIKeyboardService : InputMethodService(),
                     wordHistory.removeAt(0)
                 }
             }
+            
+            // ✅ FIX: Clear swipe state and current word
+            lastCommittedSwipeWord = ""
+            currentWord = ""
+            
+            // ✅ FIX: Clear cache and update suggestions for NEXT word
+            if (::unifiedSuggestionController.isInitialized) {
+                unifiedSuggestionController.onWordCommitted()
+            }
+            updateAISuggestions()
         }
         
         if (wasClipboardSuggestion) {
@@ -5714,6 +5766,9 @@ class AIKeyboardService : InputMethodService(),
         
         // Clear current word and update suggestions
         currentWord = ""
+        if (::unifiedSuggestionController.isInitialized) {
+            unifiedSuggestionController.onWordCommitted()
+        }
         updateAISuggestions()
     }
     
@@ -6309,17 +6364,17 @@ class AIKeyboardService : InputMethodService(),
     
     // Swipe state tracking (using UnifiedAutocorrectEngine directly)
     private var lastCommittedSwipeWord = ""
-      private var lastSwipeAutoInsertedSpace = true
+    private var lastSwipeAutoInsertedSpace = true
+    private var lastInputWasSwipe = false // ✅ Track if last input was a swipe for auto-spacing
     
     // Implement SwipeListener interface methods with enhanced autocorrection
     override fun onSwipeDetected(
         swipedKeys: List<Int>, 
         swipePattern: String, 
         keySequence: List<Int>,
-        swipePath: List<Pair<Float, Float>>
+        swipePath: List<Pair<Float, Float>>,
+        isPreview: Boolean // ✅ NEW: Flag to distinguish preview vs final (default in interface)
     ) {
-        if (keySequence.isEmpty()) return
-        
         // ✅ Safety check: Ensure unified engine is initialized
         if (!::autocorrectEngine.isInitialized) {
             Log.w(TAG, "⚠️ UnifiedAutocorrectEngine not initialized yet - ignoring swipe gesture")
@@ -6334,105 +6389,112 @@ class AIKeyboardService : InputMethodService(),
             return
         }
         
+        // Debug log for preview tracking
+        if (isPreview) {
+            Log.d(TAG, "👆 Swipe PREVIEW: ${swipePath.size} points")
+        } else {
+            Log.d(TAG, "✋ Swipe FINAL: ${swipePath.size} points")
+        }
+        
         coroutineScope.launch {
             try {
-                val startTime = System.currentTimeMillis()
-                val contextWords = if (wordHistory.isNotEmpty()) listOf(wordHistory.last()) else emptyList()
+                // Get context only if not preview (optimization)
+                val contextWords = if (isPreview) emptyList() else wordHistory.takeLast(3)
                 val swipePathObj = SwipePath(swipePath)
                 val swipeSuggestions = autocorrectEngine.suggestForSwipe(swipePathObj, contextWords)
-                val candidateTexts = swipeSuggestions.map { it.text }.filter { it.isNotBlank() }
-                val processingTime = System.currentTimeMillis() - startTime
                 
-                val fallbackCandidate = if (candidateTexts.isEmpty()) {
+                // Extract unique strings
+                val candidates = swipeSuggestions.map { it.text }.distinct().filter { it.isNotBlank() }
+                
+                // Generate fallback only for final swipes with no results
+                val finalCandidates = if (candidates.isEmpty() && !isPreview) {
                     val fallback = generateSwipeFallback(swipePath)
-                    if (fallback.isNotBlank()) {
-                        Log.w(TAG, "⚠️ Swipe decoder empty — emitting fallback='$fallback'")
-                        fallback
-                    } else {
-                        ""
-                    }
+                    if (fallback.isNotBlank()) listOf(fallback) else emptyList()
                 } else {
-                    ""
+                    candidates
                 }
-                
-                val finalCandidates = when {
-                    candidateTexts.isNotEmpty() -> candidateTexts
-                    fallbackCandidate.isNotEmpty() -> listOf(fallbackCandidate)
-                    else -> emptyList()
-                }
-                
-                val topSuggestion = swipeSuggestions.firstOrNull()
-                val secondSuggestion = swipeSuggestions.getOrNull(1)
-                val topConfidence = topSuggestion?.confidence ?: 0.0
-                val secondConfidence = secondSuggestion?.confidence ?: 0.0
-                val isConfident = topSuggestion != null &&
-                    (topConfidence >= SWIPE_CONFIDENCE_THRESHOLD ||
-                    (topConfidence - secondConfidence) >= SWIPE_CONFIDENCE_GAP)
                 
                 withContext(Dispatchers.Main) {
-                    val bestCandidate = finalCandidates.firstOrNull()
-                    
-                    if (!bestCandidate.isNullOrBlank()) {
-                        val ic = currentInputConnection
-                        if (ic != null) {
-                            ic.commitText("$bestCandidate ", 1)
-                            lastCommittedSwipeWord = bestCandidate
-                            lastSwipeAutoInsertedSpace = true
-                            
-                            // ✅ FIX 4: Run autocorrect after swipe word completion
-                            if (isAutoCorrectEnabled() && bestCandidate.length >= 3) {
-                                Log.d(TAG, "🔍 Swipe completed - checking autocorrect for: '$bestCandidate'")
-                                runAutocorrectOnCommittedWord(ic, bestCandidate)
-                            }
-                            
-                            if (isConfident) {
-                                autocorrectEngine.recordSwipeAcceptance(bestCandidate)
-                                
-                                // Phase 1: Learn from swipe acceptance for personalization
-                                userDictionaryManager?.learnFromSwipe(bestCandidate)
-                                
-                                // Phase 1: Learn sequence pattern for NextWordPredictor
-                                if (wordHistory.isNotEmpty()) {
-                                    autocorrectEngine.nextWordPredictor?.learnFromInput(
-                                        wordHistory.last(),
-                                        bestCandidate
-                                    )
-                                }
-                            }
-                        } else {
-                            lastCommittedSwipeWord = ""
-                            lastSwipeAutoInsertedSpace = true
+                    if (isPreview) {
+                        // ===========================
+                        // 🔵 PREVIEW MODE (Moving)
+                        // ===========================
+                        if (finalCandidates.isNotEmpty()) {
+                            Log.d(TAG, "👁️ Preview: ${finalCandidates.take(3)}")
+                            updateSuggestionUI(finalCandidates.take(suggestionCount))
                         }
-                        
-                        // Update word history and reset current word so next typing starts after the space
-                        wordHistory.add(bestCandidate)
-                        if (wordHistory.size > 20) {
-                            wordHistory.removeAt(0)
-                        }
-                        currentWord = ""
                     } else {
-                        lastCommittedSwipeWord = ""
-                        lastSwipeAutoInsertedSpace = true
+                        // ===========================
+                        // 🟢 FINAL MODE (Lifted)
+                        // ===========================
+                        handleFinalSwipeCommit(finalCandidates)
                     }
-                    
-                    // Show alternatives in suggestion strip (take 3 or 4 based on settings)
-                    updateSuggestionUI(finalCandidates.take(suggestionCount))
-                        
-                    if (!isConfident && !bestCandidate.isNullOrBlank()) {
-                        Log.w(TAG, "⚠️ Low-confidence swipe: word='$bestCandidate' conf=${String.format(Locale.US, "%.2f", topConfidence)} gap=${String.format(Locale.US, "%.2f", topConfidence - secondConfidence)}")
-                    }
-                    
-                    // Update AI suggestions for next word prediction
-                    updateAISuggestions()
                 }
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Error in swipe path processing", e)
-                // NO FALLBACK - let user try again or tap individual keys
                 withContext(Dispatchers.Main) {
-                    updateSuggestionUI(emptyList())
+                    lastInputWasSwipe = false
+                    updateAISuggestions()
                 }
             }
+        }
+    }
+    
+    /**
+     * Handle final swipe commit when finger is lifted
+     * - Auto-spaces between consecutive swipes
+     * - Shows alternatives (excluding committed word) in suggestion bar
+     */
+    private fun handleFinalSwipeCommit(candidates: List<String>) {
+        val bestCandidate = candidates.firstOrNull()
+        if (bestCandidate.isNullOrBlank()) {
+            lastCommittedSwipeWord = ""
+            lastInputWasSwipe = false
+            currentWord = ""
+            updateAISuggestions()
+            return
+        }
+        
+        val ic = currentInputConnection ?: return
+        
+        // 1. AUTO-SPACE LOGIC (Swipe -> Swipe)
+        // If we just swiped a word previously, add a space before this new one
+        if (lastInputWasSwipe && currentWord.isNotEmpty()) {
+            ic.commitText(" ", 1)
+            // Commit the PREVIOUS word to history now that it's confirmed
+            onWordCommitted(currentWord)
+            wordHistory.add(currentWord)
+            if (wordHistory.size > 20) wordHistory.removeAt(0)
+        }
+        
+        // 2. COMMIT WORD (No trailing space yet)
+        ic.commitText(bestCandidate, 1)
+        
+        // 3. UPDATE STATE
+        currentWord = bestCandidate
+        lastCommittedSwipeWord = bestCandidate
+        lastInputWasSwipe = true
+        
+        Log.d(TAG, "✅ Swipe committed: '$bestCandidate'")
+        
+        // 4. Learn from swipe
+        if (::autocorrectEngine.isInitialized) {
+            autocorrectEngine.recordSwipeAcceptance(bestCandidate)
+        }
+        userDictionaryManager?.learnFromSwipe(bestCandidate)
+        
+        // 5. SMART SUGGESTIONS - Filter out the committed word
+        // User wants alternatives, not the word they just entered
+        val alternatives = candidates
+            .filter { !it.equals(bestCandidate, ignoreCase = true) }
+            .take(suggestionCount)
+        
+        if (alternatives.isNotEmpty()) {
+            updateSuggestionUI(alternatives)
+        } else {
+            // If no alternatives, show next word predictions
+            updateAISuggestions()
         }
     }
     

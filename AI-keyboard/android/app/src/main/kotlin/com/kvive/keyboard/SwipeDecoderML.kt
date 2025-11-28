@@ -69,7 +69,14 @@ class SwipeDecoderML(
 
                         // Clamped spatial score allows for one bad point (corner cutting)
                         val rawSpatial = -(dist * dist) / (2 * SIGMA * SIGMA)
-                        val spatialScore = rawSpatial.toDouble().coerceAtLeast(SPATIAL_CLAMP)
+                        var spatialScore = rawSpatial.toDouble().coerceAtLeast(SPATIAL_CLAMP)
+                        
+                        // 🔥 FIX: Double Letter Bonus - helps "cook", "tool", "look", "feel"
+                        // If adding same char as last (e.g. 'o' -> 'o' in cook),
+                        // give bonus since finger doesn't need to move much
+                        if (hyp.lastChar == char && dist < 0.15f) {
+                            spatialScore += 2.5 // Bonus for staying near same key
+                        }
 
                         nextBeam.add(Hypothesis(
                             text = hyp.text + char,
@@ -192,13 +199,18 @@ class SwipeDecoderML(
         var penalty = 0.0
         val vowels = setOf('a', 'e', 'i', 'o', 'u', 'y')
         
+        // Penalize words without vowels (likely gibberish)
         if (lower.length >= 3 && lower.none { it in vowels }) penalty += 5.0
         
+        // 🔥 FIX: Only penalize triple+ repeats, NOT double letters
+        // Double letters are common: "cool", "feel", "book", "wall", "ball"
+        // Triple+ repeats are rare/invalid: "coool", "boook"
         var repeatCount = 0
-        for (i in 1 until lower.length) {
-            if (lower[i] == lower[i-1]) repeatCount++
+        for (i in 2 until lower.length) {
+            // Only count if 3+ same letters in a row
+            if (lower[i] == lower[i-1] && lower[i] == lower[i-2]) repeatCount++
         }
-        penalty += repeatCount * 1.5
+        penalty += repeatCount * 3.0 // Higher penalty for actual invalid repeats
         
         return penalty.coerceAtLeast(0.0)
     }
