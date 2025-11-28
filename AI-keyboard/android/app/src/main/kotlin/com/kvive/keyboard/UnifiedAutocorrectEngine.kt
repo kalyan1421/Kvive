@@ -103,9 +103,8 @@ class UnifiedAutocorrectEngine(
     // ========== NEW: Phase 1 Components ==========
     
     // ML-based swipe decoder for better gesture recognition
-    private val swipeDecoderML: SwipeDecoderML by lazy {
-        SwipeDecoderML(context, defaultKeyLayout)
-    }
+    // Note: SwipeDecoderML is now created on-demand in getSwipeDecoder() to ensure dictionary is available
+    private var swipeDecoderML: SwipeDecoderML? = null
     
     // Next-word predictor for context-aware suggestions (public for learning integration)
     val nextWordPredictor: NextWordPredictor by lazy {
@@ -142,6 +141,22 @@ class UnifiedAutocorrectEngine(
         return if (currentLayoutCoordinates.isEmpty()) defaultKeyLayout else currentLayoutCoordinates
     }
 
+    /**
+     * Get or create SwipeDecoderML instance with the dictionary
+     * This ensures the decoder always has access to the current language's dictionary
+     */
+    private fun getSwipeDecoder(): SwipeDecoderML? {
+        val dict = trieDictionary ?: return null
+        
+        // Create new decoder if not exists or if dictionary changed
+        if (swipeDecoderML == null) {
+            swipeDecoderML = SwipeDecoderML(context, activeLayout(), dict)
+            Log.d(TAG, "✅ SwipeDecoderML initialized with Beam Search for language: $currentLanguage")
+        }
+        
+        return swipeDecoderML
+    }
+
     private fun loadMappedTrie(lang: String) {
         trieDictionary = try {
             MappedTrieDictionary(context, lang)
@@ -149,6 +164,9 @@ class UnifiedAutocorrectEngine(
             Log.e(TAG, "Binary dictionary not found for $lang, falling back to LanguageResources maps", e)
             null
         }
+        
+        // Reset swipeDecoderML so it gets recreated with the new dictionary
+        swipeDecoderML = null
     }
 
     private fun getWordFrequency(word: String, resources: LanguageResources? = languageResources): Int {
@@ -934,19 +952,30 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
             Log.d(TAG, "🔄 Getting swipe suggestions from Firebase data + ML decoder")
             
             // ========== Phase 1: ML-Based Swipe Decoding ==========
-            // Use proper path decoding with metrics (primary decoder)
-            val geometricCandidates = decodeSwipePath(path, resources, context)
+            // Try Beam Search decoder first (Gboard-quality)
+            val decoder = getSwipeDecoder()
+            val beamSearchCandidates = if (decoder != null) {
+                decoder.decode(path)
+            } else {
+                emptyList()
+            }
             
-            // Convert to suggestions with proper scoring
-            val result = geometricCandidates
-                .map { (word, score) -> Suggestion(word, score, SuggestionSource.SWIPE) }
-                .take(5)
+            // If Beam Search produces results, use them as primary
+            val result = if (beamSearchCandidates.isNotEmpty()) {
+                Log.d(TAG, "🚀 Beam Search decoder candidates: ${beamSearchCandidates.take(5).map { it.first }}")
+                beamSearchCandidates
+                    .map { (word, score) -> Suggestion(word, score, SuggestionSource.SWIPE) }
+                    .take(5)
+            } else {
+                // Fallback to geometric decoder if Beam Search fails
+                Log.d(TAG, "⚠️ Beam Search unavailable, falling back to geometric decoder")
+                val geometricCandidates = decodeSwipePath(path, resources, context)
+                geometricCandidates
+                    .map { (word, score) -> Suggestion(word, score, SuggestionSource.SWIPE) }
+                    .take(5)
+            }
             
-            // ML decoder confidence boost (Phase 2: will use for ranking boost, not primary)
-            val mlCandidates = swipeDecoderML.decode(path)
-            Log.d(TAG, "🤖 ML decoder candidates: ${mlCandidates.take(5)}")
-            
-            Log.d(TAG, "✅ Swipe candidates (ML + Geometric): ${result.map { "${it.text}(${String.format("%.2f", it.score)})" }.joinToString(", ")}")
+            Log.d(TAG, "✅ Swipe candidates: ${result.map { "${it.text}(${String.format("%.2f", it.score)})" }.joinToString(", ")}")
             
             suggestionCache.put(cacheKey, result)
             return result

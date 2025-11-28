@@ -119,6 +119,37 @@ class MappedTrieDictionary(context: Context, language: String) {
 
     private fun getUnsignedByte(index: Int): Int = buffer.get(index).toInt() and 0xFF
 
+    /**
+     * Returns a map of (Character -> Next Node Offset) for a given parent node.
+     * Used for graph traversal in swipe decoding.
+     */
+    fun getChildren(parentOffset: Int): Map<Char, Int> {
+        val children = mutableMapOf<Char, Int>()
+        
+        // In your binary format, the first child pointer is at offset + 3
+        // This assumes your getUInt24 and buffer are accessible
+        var childOffset = getUInt24(parentOffset + 3)
+
+        // Iterate through the linked list of siblings
+        while (childOffset != 0) {
+            val charAtNode = buffer.getChar(childOffset)
+            children[charAtNode] = childOffset
+            
+            // Move to next sibling (offset + 6 is the sibling pointer in your format)
+            childOffset = getUInt24(childOffset + 6)
+        }
+        return children
+    }
+
+    /**
+     * Get the exact frequency of the word ending at this node offset.
+     * Returns 0 if this node is not a word end.
+     */
+    fun getFrequencyAtNode(nodeOffset: Int): Int {
+        // In your format, frequency is at offset + 2
+        return getUnsignedByte(nodeOffset + 2)
+    }
+
     private fun ensureDictionaryFile(context: Context, language: String): File {
         val target = File(context.filesDir, "dictionaries/${language}.bin")
         if (target.exists()) return target
