@@ -6,22 +6,12 @@ import com.kvive.keyboard.utils.LogUtil
 import kotlin.math.*
 
 /**
- * SwipeDecoderML - Gboard-quality swipe decoder using Beam Search
+ * SwipeDecoderML V5 - Spatial Self-Loop Model
  * 
- * Uses graph traversal through the dictionary trie combined with spatial scoring
- * to find the most likely word given a swipe path.
- * 
- * Algorithm: Beam Search with Gaussian spatial model
- * - Maintains top N hypotheses (partial words) at each step
- * - For each touch point, expands hypotheses by adding possible next letters
- * - Scores based on spatial proximity (Gaussian) + dictionary frequency
- * - Prunes search space by keeping only the top BEAM_WIDTH candidates
- * 
- * Features:
- * - Handles "corner cutting" (e.g., swiping from E to O through R)
- * - Robust to imprecise paths
- * - Combines spatial and linguistic knowledge
- * - Real-time performance (~10ms for typical words)
+ * Fixes:
+ * 1. "2-Letter" Bug: Replaces fixed WAIT_PENALTY with spatial scoring for staying on a key.
+ * 2. "Long Word" Bug: Removed aggressive length bonus that favored "terrestres".
+ * 3. Beam Diversity: collapses duplicate paths to the same node to keep search wide.
  */
 class SwipeDecoderML(
     private val context: Context,
@@ -30,164 +20,191 @@ class SwipeDecoderML(
 ) {
     companion object {
         private const val TAG = "SwipeDecoderML"
-        private const val BEAM_WIDTH = 25 // Keep top 25 candidates alive
-        private const val SIGMA = 0.12f   // Spatial tolerance (key radius roughly)
-        
-        // Penalty for keeping hypothesis without adding a letter
-        private const val WAIT_PENALTY = 0.5
+        private const val BEAM_WIDTH = 40 // Increased beam width for better coverage
+        private const val SIGMA = 0.11f   // Spatial tolerance
     }
 
-    // A "Hypothesis" represents one possible word being formed
     data class Hypothesis(
         val text: String,
-        val score: Double, // Log probability (higher is better, usually negative)
-        val nodeOffset: Int, // Current position in the Trie
+        val score: Double, 
+        val nodeOffset: Int, 
         val lastChar: Char?
     )
 
-    /**
-     * Decode swipe path to candidate words with confidence scores
-     * Returns list of (word, score) pairs sorted by score (higher is better)
-     * 
-     * @param path SwipePath containing normalized touch points
-     * @return List of word candidates with scores
-     */
     fun decode(path: SwipePath): List<Pair<String, Double>> {
-        if (path.points.size < 3) {
-            LogUtil.w(TAG, "Path too short for decoding: ${path.points.size} points")
-            return emptyList()
-        }
+        if (path.points.size < 3) return emptyList()
 
         try {
-            LogUtil.d(TAG, "🔍 Decoding swipe path with ${path.points.size} points")
+            LogUtil.d(TAG, "🔍 V5 Decode: ${path.points.size} points (Spatial Self-Loop)")
             
-            // 1. Start with an empty root hypothesis
-            // 0 is usually the root offset in MappedTrie
+            // 1. Start with root hypothesis
             var beam = listOf(Hypothesis("", 0.0, 0, null))
 
-            // 2. Iterate through sampled points in the swipe path
-            // We skip points to improve performance (e.g., process every 2nd point)
-            for (i in path.points.indices step 2) {
+            // 2. Iterate points (Process every point for accuracy)
+            for (i in path.points.indices) {
                 val (touchX, touchY) = path.points[i]
                 val nextBeam = mutableListOf<Hypothesis>()
 
-                // 3. Expand every active hypothesis
                 for (hyp in beam) {
-                    // Get all valid next letters from the dictionary
+                    // OPTION A: Move to a new letter
                     val children = dictionary.getChildren(hyp.nodeOffset)
-
                     for ((char, childOffset) in children) {
                         val keyPos = keyLayout[char] ?: continue
                         
-                        // -- SPATIAL SCORE --
-                        // How close is the touch point to this key?
+                        // Score: How close is this NEW key?
                         val dist = calculateDistance(touchX, touchY, keyPos.first, keyPos.second)
-                        
-                        // Gaussian score: e^(-dist^2 / 2*sigma^2)
-                        // We work in Log space to avoid tiny numbers: -dist^2 / C
                         val spatialScore = -(dist * dist) / (2 * SIGMA * SIGMA)
 
-                        // Create new hypothesis
-                        val newHyp = Hypothesis(
+                        nextBeam.add(Hypothesis(
                             text = hyp.text + char,
                             score = hyp.score + spatialScore,
                             nodeOffset = childOffset,
                             lastChar = char
-                        )
-                        nextBeam.add(newHyp)
+                        ))
                     }
                     
-                    // CRITICAL: Also keep the *current* hypothesis alive without adding a letter.
-                    // (The user might be dragging their finger *towards* the next letter but hasn't reached it).
-                    // We apply a small penalty to prevent infinite waiting.
-                    nextBeam.add(hyp.copy(score = hyp.score - WAIT_PENALTY))
+                    // OPTION B: Stay on current letter (Self-Loop)
+                    // This fixes the "2-letter" bug by allowing the finger to linger
+                    // without an arbitrary penalty.
+                    if (hyp.lastChar != null) {
+                        val keyPos = keyLayout[hyp.lastChar]
+                        if (keyPos != null) {
+                            // Score: How close are we still to the CURRENT key?
+                            val dist = calculateDistance(touchX, touchY, keyPos.first, keyPos.second)
+                            val spatialScore = -(dist * dist) / (2 * SIGMA * SIGMA)
+                            
+                            // Keep same text, same node, update score
+                            nextBeam.add(hyp.copy(score = hyp.score + spatialScore))
+                        }
+                    } else {
+                        // If haven't started yet, small penalty to encourage starting
+                        nextBeam.add(hyp.copy(score = hyp.score - 0.5))
+                    }
                 }
 
-                // 4. Prune the Beam
-                // Sort by score and keep only the top BEAM_WIDTH candidates
-                beam = nextBeam.sortedByDescending { it.score }.take(BEAM_WIDTH)
+                // 3. Prune & Merge
+                // Critical: If multiple paths lead to the same dictionary node, keep only the best one.
+                // This prevents the beam from filling up with "he", "he", "he" (variations of staying).
+                val merged = HashMap<Int, Hypothesis>()
+                for (h in nextBeam) {
+                    val existing = merged[h.nodeOffset]
+                    if (existing == null || h.score > existing.score) {
+                        merged[h.nodeOffset] = h
+                    }
+                }
+                
+                beam = merged.values.sortedByDescending { it.score }.take(BEAM_WIDTH)
             }
 
-            // 5. Finalize and Rank
+            // 4. Finalize & Rank
             val results = beam.mapNotNull { hyp ->
                 val freq = dictionary.getFrequencyAtNode(hyp.nodeOffset)
                 if (freq > 0) {
-                    // Combine Path Score with Dictionary Frequency (Unigram Probability)
-                    // This helps prefer common words like "the" over "thg"
-                    val finalScore = hyp.score + ln(freq.toDouble())
+                    // Log-probability for frequency (handles flat 255 gracefully)
+                    val freqScore = ln(freq.toDouble().coerceAtLeast(1.0))
+                    
+                    // Small length bias just to break ties (e.g. "is" vs "i")
+                    val lengthBonus = hyp.text.length * 0.1
+                    
+                    // 🔴 WORKAROUND: Penalize words with uncommon patterns
+                    // Until dictionary frequencies are fixed, use heuristic
+                    val wordPenalty = calculateWordPenalty(hyp.text)
+                    
+                    val finalScore = hyp.score + freqScore + lengthBonus - wordPenalty
+                    
+                    LogUtil.d(TAG, "📊 ${hyp.text} | path=${String.format("%.2f", hyp.score)} freq=$freq pen=${String.format("%.1f", wordPenalty)} final=${String.format("%.2f", finalScore)}")
+                    
                     Pair(hyp.text, finalScore)
                 } else {
-                    null // Not a complete word
+                    null
                 }
             }
 
-            // Return sorted, unique results
-            val topResults = results.sortedByDescending { it.second }
-                .distinctBy { it.first }
-                .take(10)
+            // Return top results
+            val finalResults = results.sortedByDescending { it.second }.take(10)
+            LogUtil.d(TAG, "✅ V5 Results: ${finalResults.take(5).map { "${it.first}(${String.format("%.1f", it.second)})" }}")
             
-            LogUtil.d(TAG, "✅ Generated ${topResults.size} candidates: ${topResults.take(3).map { it.first }}")
-            return topResults
-            
+            return finalResults
+
         } catch (e: Exception) {
-            LogUtil.e(TAG, "Error decoding swipe path", e)
+            LogUtil.e(TAG, "Error decoding", e)
             return emptyList()
         }
     }
 
-    /**
-     * Calculate Euclidean distance between two points
-     */
     private fun calculateDistance(x1: Float, y1: Float, x2: Float, y2: Float): Float {
         return sqrt((x1 - x2).pow(2) + (y1 - y2).pow(2))
     }
-
+    
     /**
-     * Compute path score for a candidate word (for compatibility with existing code)
-     * This is kept for backward compatibility but isn't used in the new Beam Search approach
+     * 🔴 WORKAROUND: Calculate penalty for words with uncommon patterns
+     * This heuristic helps rank real words higher than junk when freq=255 for all
      * 
-     * @param word Candidate word to score
-     * @param path SwipePath with touch points
-     * @return Confidence score (0.0-1.0)
+     * Penalizes:
+     * - Consecutive consonant clusters (e.g., "thtr", "htrw")
+     * - Repeated letters (e.g., "tthhee", "wass")
+     * - No vowels in 3+ letter words
+     * - Unusual letter combinations
      */
-    fun computePathScore(word: String, path: SwipePath): Double {
-        if (word.isEmpty() || path.points.isEmpty()) return 0.0
+    private fun calculateWordPenalty(word: String): Double {
+        if (word.length < 2) return 0.0
         
-        try {
-            // Simple distance-based scoring for compatibility
-            var totalDistance = 0.0
-            var count = 0
-            
-            val wordChars = word.lowercase().toCharArray()
-            val sampleIndices = (0 until wordChars.size).map { i ->
-                (i * (path.points.size - 1).toFloat() / (wordChars.size - 1).coerceAtLeast(1)).toInt()
-            }
-            
-            for (i in sampleIndices.indices) {
-                if (i >= wordChars.size || sampleIndices[i] >= path.points.size) continue
-                
-                val point = path.points[sampleIndices[i]]
-                val expectedChar = wordChars[i]
-                val expectedPos = keyLayout[expectedChar] ?: continue
-                
-                val distance = calculateDistance(
-                    point.first, point.second,
-                    expectedPos.first, expectedPos.second
-                )
-                
-                totalDistance += distance
-                count++
-            }
-            
-            if (count == 0) return 0.0
-            
-            val avgDistance = totalDistance / count
-            // Convert to 0-1 score (closer = higher score)
-            return max(0.0, 1.0 - (avgDistance / 0.5))
-            
-        } catch (e: Exception) {
-            LogUtil.e(TAG, "Error computing path score for '$word'", e)
-            return 0.0
+        val lower = word.lowercase()
+        var penalty = 0.0
+        
+        // Set of common vowels
+        val vowels = setOf('a', 'e', 'i', 'o', 'u')
+        
+        // 1. Penalize words without vowels (if 3+ letters)
+        if (lower.length >= 3 && lower.none { it in vowels }) {
+            penalty += 5.0
         }
+        
+        // 2. Penalize consecutive repeated letters (e.g., "tthhee")
+        var repeatCount = 0
+        for (i in 1 until lower.length) {
+            if (lower[i] == lower[i-1]) {
+                repeatCount++
+            }
+        }
+        penalty += repeatCount * 1.5
+        
+        // 3. Penalize long consonant clusters (3+ consonants in a row)
+        var consonantRun = 0
+        var maxConsonantRun = 0
+        for (c in lower) {
+            if (c !in vowels && c.isLetter()) {
+                consonantRun++
+                maxConsonantRun = maxOf(maxConsonantRun, consonantRun)
+            } else {
+                consonantRun = 0
+            }
+        }
+        if (maxConsonantRun >= 3) {
+            penalty += (maxConsonantRun - 2) * 2.0
+        }
+        
+        // 4. Boost common short words (these should never be penalized)
+        val commonWords = setOf(
+            "the", "be", "to", "of", "and", "a", "in", "that", "have", "i",
+            "it", "for", "not", "on", "with", "he", "as", "you", "do", "at",
+            "this", "but", "his", "by", "from", "they", "we", "say", "her", "she",
+            "or", "an", "will", "my", "one", "all", "would", "there", "their",
+            "what", "so", "up", "out", "if", "about", "who", "get", "which", "go",
+            "me", "when", "make", "can", "like", "time", "no", "just", "him", "know",
+            "take", "people", "into", "year", "your", "good", "some", "could", "them",
+            "see", "other", "than", "then", "now", "look", "only", "come", "its", "over",
+            "think", "also", "back", "after", "use", "two", "how", "our", "work",
+            "first", "well", "way", "even", "new", "want", "because", "any", "these",
+            "give", "day", "most", "us", "is", "are", "was", "were", "been", "has", "had",
+            "hello", "world", "thanks", "please", "yes", "no", "okay", "right", "left",
+            "three", "four", "five", "six", "seven", "eight", "nine", "ten"
+        )
+        
+        if (lower in commonWords) {
+            penalty -= 3.0 // Boost common words
+        }
+        
+        return penalty.coerceAtLeast(0.0)
     }
 }

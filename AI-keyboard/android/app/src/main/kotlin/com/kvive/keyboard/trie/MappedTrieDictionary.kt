@@ -56,6 +56,14 @@ class MappedTrieDictionary(context: Context, language: String) {
             .take(limit)
             .map { it.first }
     }
+    
+    /**
+     * Alias for getSuggestions - Gboard-style API
+     * Returns list of words starting with [prefix], ordered by frequency desc.
+     */
+    fun lookupByPrefix(prefix: String, limit: Int = 10): List<String> {
+        return getSuggestions(prefix, limit)
+    }
 
     // --- Low Level Binary Navigation ---
 

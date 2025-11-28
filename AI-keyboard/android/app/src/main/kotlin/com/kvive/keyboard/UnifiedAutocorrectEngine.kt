@@ -940,45 +940,32 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
     }
     
     /**
-     * Get swipe suggestions (NEW UNIFIED API with Phase 1 ML decoder)
+     * Get swipe suggestions (V5 - Returns ML decoder results DIRECTLY)
+     * 🔴 CRITICAL: No legacy fallback, no re-ranking, no fusion
      */
     fun suggestForSwipe(path: SwipePath, context: List<String>): List<Suggestion> {
-        val resources = languageResources ?: return emptyList()
-        
         val cacheKey = "swipe:${path.hashCode()}:${context.joinToString(",")}"
         suggestionCache.get(cacheKey)?.let { return it }
         
         try {
-            Log.d(TAG, "🔄 Getting swipe suggestions from Firebase data + ML decoder")
-            
-            // ========== Phase 1: ML-Based Swipe Decoding ==========
-            // Try Beam Search decoder first (Gboard-quality)
             val decoder = getSwipeDecoder()
-            val beamSearchCandidates = if (decoder != null) {
-                decoder.decode(path)
-            } else {
-                emptyList()
+            val beamSearchCandidates = decoder?.decode(path) ?: emptyList()
+            
+            if (beamSearchCandidates.isNotEmpty()) {
+                Log.d(TAG, "🚀 V5 Beam Search: ${beamSearchCandidates.take(5)}")
+                
+                // RETURN IMMEDIATELY - Do not fall through to legacy logic
+                val result = beamSearchCandidates.map { (word, score) -> 
+                    Suggestion(word, score, SuggestionSource.SWIPE, confidence = 1.0) 
+                }.take(10)
+                
+                suggestionCache.put(cacheKey, result)
+                return result
             }
             
-            // If Beam Search produces results, use them as primary
-            val result = if (beamSearchCandidates.isNotEmpty()) {
-                Log.d(TAG, "🚀 Beam Search decoder candidates: ${beamSearchCandidates.take(5).map { it.first }}")
-                beamSearchCandidates
-                    .map { (word, score) -> Suggestion(word, score, SuggestionSource.SWIPE) }
-                    .take(5)
-            } else {
-                // Fallback to geometric decoder if Beam Search fails
-                Log.d(TAG, "⚠️ Beam Search unavailable, falling back to geometric decoder")
-                val geometricCandidates = decodeSwipePath(path, resources, context)
-                geometricCandidates
-                    .map { (word, score) -> Suggestion(word, score, SuggestionSource.SWIPE) }
-                    .take(5)
-            }
-            
-            Log.d(TAG, "✅ Swipe candidates: ${result.map { "${it.text}(${String.format("%.2f", it.score)})" }.joinToString(", ")}")
-            
-            suggestionCache.put(cacheKey, result)
-            return result
+            // No fallback - if decoder fails, return empty
+            Log.d(TAG, "⚠️ V5 Beam Search returned empty")
+            return emptyList()
             
         } catch (e: Exception) {
             Log.e(TAG, "Error getting swipe suggestions", e)
