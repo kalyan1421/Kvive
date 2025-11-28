@@ -195,15 +195,8 @@ class AIKeyboardService : InputMethodService(),
                 else -> false // ✅ Default to false (vibration OFF) if not set in Flutter
             }
             
-            // ✅ FIX: Check Flutter preferences for popup_visibility first, then fallback to native
-            val keyPreviewNative = nativePrefs.getBoolean("key_preview_enabled", false)
-            val keyPreview = when {
-                flutterPrefs.contains("flutter.keyboard_settings.popup_visibility") ->
-                    flutterPrefs.getBoolean("flutter.keyboard_settings.popup_visibility", keyPreviewNative)
-                flutterPrefs.contains("flutter.keyboard.popupPreview") ->
-                    flutterPrefs.getBoolean("flutter.keyboard.popupPreview", keyPreviewNative)
-                else -> keyPreviewNative
-            }
+            // ✅ DISABLED: Popup preview permanently disabled (user request)
+            val keyPreview = false  // Always disabled
             
             val showNumberRow = nativePrefs.getBoolean("show_number_row", false)
             val swipeTyping = nativePrefs.getBoolean("swipe_typing", true)
@@ -507,11 +500,11 @@ class AIKeyboardService : InputMethodService(),
     private var currentWord = ""
     private var isAIReady = false
     
-    // Autocorrect undo and rejection tracking
-    private var lastCorrection: Pair<String, String>? = null // (original, corrected)
+    // ✅ SIMPLIFIED: Autocorrect undo and rejection tracking
+    // If lastCorrection is non-null, undo is available - no need for separate flag
+    private var lastCorrection: Pair<String, String>? = null // (original, corrected) - null means no undo available
     private var correctionRejected: Boolean = false
-    private var undoAvailable: Boolean = false
-    // ✅ NEW: Explicitly track the word text that was rejected to prevent re-correction loops
+    // ✅ Explicitly track the word text that was rejected to prevent re-correction loops
     private var rejectedOriginal: String? = null
     
     // ✅ FIX 9: Flag to prevent suggestion triggers during programmatic commits
@@ -851,123 +844,39 @@ class AIKeyboardService : InputMethodService(),
     override fun onCreate() {
         super.onCreate()
         
+        val startTime = System.currentTimeMillis()
+        Log.d(TAG, "🚀 onCreate() started")
+        
+        // Start profiling onCreate
+        com.kvive.keyboard.utils.StartupProfiler.startOperation("AIKeyboardService.onCreate")
+        com.kvive.keyboard.utils.StartupProfiler.milestone("onCreate() start")
+        
         // ✅ Set instance for UnifiedKeyboardView to access
         instance = this
         
-        // 🔥 FORCE RESET: Clear old sound/vibration settings to ensure they're OFF by default
-        val flutterPrefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        val hasResetFlag = flutterPrefs.getBoolean("_sound_vibration_reset_v2", false)
-        
-        if (!hasResetFlag) {
-            // First time or after update - force sound/vibration to OFF
-            Log.d(TAG, "🔄 Resetting sound/vibration to OFF (first time setup)")
-            flutterPrefs.edit().apply {
-                putBoolean("flutter.sound_enabled", false)
-                putBoolean("flutter.vibration_enabled", false)
-                putBoolean("flutter.key_press_sounds", false)
-                putBoolean("flutter.long_press_sounds", false)
-                putBoolean("flutter.repeated_action_sounds", false)
-                putBoolean("flutter.key_press_vibration", false)
-                putBoolean("flutter.long_press_vibration", false)
-                putBoolean("flutter.repeated_action_vibration", false)
-                putBoolean("_sound_vibration_reset_v2", true)  // Mark as reset
-                apply()
-            }
-            Log.d(TAG, "✅ Sound/Vibration forced to OFF")
-        }
-
-        // STEP 1 — Load sound preference BEFORE init()
-        val prefs = getSharedPreferences("keyboard_prefs", Context.MODE_PRIVATE)
-        val selectedSound = prefs.getString("selected_sound", null)
-
-        var initialSoundProfile = "default"
-        var initialCustomSoundUri: String? = null
-
-        if (selectedSound != null) {
-            initialSoundProfile = "custom"
-            initialCustomSoundUri = "sounds/$selectedSound"
-            Log.d(TAG, "🔊 Selected custom sound: $initialCustomSoundUri")
-        } else {
-            Log.d(TAG, "🔊 Using default sound profile")
-        }
-
-        // STEP 2 — Initialize SoundManager WITH correct profile
-        KeyboardSoundManager.init(
-            context = this,
-            initialProfile = initialSoundProfile,
-            initialCustomUri = initialCustomSoundUri
-        )
-        
-        // ✅ FIX: Set global enabled flag to FALSE by default (user can enable in settings)
-        KeyboardSoundManager.isEnabled = false
-
-        Log.d(TAG, "✅ KeyboardSoundManager initialized with correct sound profile (sound OFF by default)")
-        // Initialize keyboard height manager
+        // 🔥 PERFORMANCE: Minimize main thread work - move to background
+        // Initialize only critical components synchronously
         keyboardHeightManager = KeyboardHeightManager(this)
-
-        // Initialize settings and theme
         settings = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
         settingsManager = SettingsManager(this)
         themeManager = ThemeManager(this)
+        vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        keyboardSettings = KeyboardSettings()
         
-        // Register as theme change listener for live updates
+        Log.d(TAG, "✅ Critical components initialized in ${System.currentTimeMillis() - startTime}ms")
+        
+        // Register theme listener (lightweight)
         themeManager.addThemeChangeListener(object : ThemeManager.ThemeChangeListener {
             override fun onThemeChanged(theme: com.kvive.keyboard.themes.KeyboardThemeV2, palette: com.kvive.keyboard.themes.ThemePaletteV2) {
                 Log.d(TAG, "🎨 Theme changed: ${theme.name}, applying to keyboard...")
                 mainHandler.post {
                     applyThemeImmediately()
-                    // ✅ Apply theme to UnifiedPanelManager
                     unifiedPanelManager?.applyTheme(theme)
                 }
             }
         })
         
-        // Keyboard layouts now handled by LanguageLayoutAdapter (JSON-based)
-        
-        // CRITICAL: Initialize all core components FIRST before any async operations
-        initializeCoreComponents()
-        
-        // UNIFIED SETTINGS LOAD - replaces loadSettings(), loadEnhancedSettings(), loadKeyboardSettings()
-        applyLoadedSettings(settingsManager.loadAll(), logSuccess = true)
-        // loadDictionariesAsync() // DISABLED: Using new unified MultilingualDictionary system instead
-        
-        // Update suggestion controller settings on startup
-        updateSuggestionControllerSettings()
-        
-        // Initialize multilingual components (now safe)
-        initializeMultilingualComponents()
-
-        // Initialize Theme MethodChannel
-        initializeThemeChannel()
-        
-        // Initialize advanced keyboard features
-        vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        
-        // ✅ FIX: Check if device has vibrator - but don't disable user preference
-        // User preference should remain, vibration will just be skipped if device doesn't support it
-        if (vibrator == null || (vibrator?.hasVibrator() == false)) {
-            Log.w(TAG, "⚠️ Device has no vibration motor - vibration will be skipped but user preference preserved")
-            // Mark warning as shown (toast removed)
-            val prefs = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
-            if (!prefs.getBoolean("vibrator_warning_shown", false)) {
-                prefs.edit().putBoolean("vibrator_warning_shown", true).apply()
-            }
-        }
-        
-        // longPressHandler is now a val initialized at declaration
-        
-        // Caps/Shift Manager now initialized by UnifiedLayoutController
-        // initializeCapsShiftManager() - MOVED to UnifiedLayoutController
-        
-        // ClipboardHistoryManager already initialized in initializeCoreComponents()
-        // Just complete setup with listener
-        
-        // Initialize keyboard settings with defaults first
-        keyboardSettings = KeyboardSettings()
-        // Settings already loaded via unified loader above
-        // loadKeyboardSettings() - REMOVED (now handled by applyLoadedSettings)
-        
-        // Register broadcast receiver for settings changes
+        // Register broadcast receiver (lightweight)
         try {
             val filter = IntentFilter().apply {
                 addAction("com.kvive.keyboard.SETTINGS_CHANGED")
@@ -978,34 +887,155 @@ class AIKeyboardService : InputMethodService(),
                 addAction("com.kvive.keyboard.CLEAR_USER_WORDS")
                 addAction("com.kvive.keyboard.LANGUAGE_CHANGED")
             }
-            // Use RECEIVER_NOT_EXPORTED for Android 13+ compatibility
             com.kvive.keyboard.utils.BroadcastUtils.safeRegisterReceiver(this, settingsReceiver, filter)
-            Log.d(TAG, "Broadcast receiver registered successfully")
         } catch (e: Exception) {
             Log.e(TAG, "Error registering broadcast receiver", e)
         }
         
-        // Start settings polling as backup
-        startSettingsPolling()
+        // ⚡ DEFER HEAVY INITIALIZATION - Run immediately after onCreate returns
+        // This allows the UI to appear quickly while initialization continues
+        mainHandler.post {
+            initializeDeferredComponents()
+        }
         
-        // Load language preferences
-        loadLanguagePreferences()
-
-        // Preload all enabled keymaps into RAM/disk cache off the main thread
+        Log.d(TAG, "✅ onCreate() completed in ${System.currentTimeMillis() - startTime}ms")
+        
+        // End profiling onCreate
+        com.kvive.keyboard.utils.StartupProfiler.endOperation("AIKeyboardService.onCreate")
+        com.kvive.keyboard.utils.StartupProfiler.milestone("onCreate() end")
+    }
+    
+    /**
+     * 🚀 PERFORMANCE OPTIMIZATION: Deferred initialization
+     * Runs immediately after onCreate() returns, allowing UI to appear first
+     */
+    private fun initializeDeferredComponents() {
+        val startTime = System.currentTimeMillis()
+        Log.d(TAG, "⏳ Starting deferred initialization...")
+        com.kvive.keyboard.utils.StartupProfiler.startOperation("DeferredComponents")
+        
+        // Step 1: Load settings asynchronously (non-blocking)
         coroutineScope.launch(Dispatchers.IO) {
+            com.kvive.keyboard.utils.StartupProfiler.startOperation("LoadSoundSettings")
             try {
-                languageLayoutAdapter.preloadKeymaps(enabledLanguages)
-                Log.d(TAG, "✅ Preloaded keymaps for languages: $enabledLanguages")
+                // Sound/vibration settings
+                val flutterPrefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                val hasResetFlag = flutterPrefs.getBoolean("_sound_vibration_reset_v2", false)
+                
+                if (!hasResetFlag) {
+                    flutterPrefs.edit().apply {
+                        putBoolean("flutter.sound_enabled", false)
+                        putBoolean("flutter.vibration_enabled", false)
+                        putBoolean("flutter.key_press_sounds", false)
+                        putBoolean("flutter.long_press_sounds", false)
+                        putBoolean("flutter.repeated_action_sounds", false)
+                        putBoolean("flutter.key_press_vibration", false)
+                        putBoolean("flutter.long_press_vibration", false)
+                        putBoolean("flutter.repeated_action_vibration", false)
+                        putBoolean("_sound_vibration_reset_v2", true)
+                        apply()
+                    }
+                }
+                
+                // Sound manager initialization
+                withContext(Dispatchers.Main) {
+                    val prefs = getSharedPreferences("keyboard_prefs", Context.MODE_PRIVATE)
+                    val selectedSound = prefs.getString("selected_sound", null)
+                    val initialSoundProfile = if (selectedSound != null) "custom" else "default"
+                    val initialCustomSoundUri = selectedSound?.let { "sounds/$it" }
+                    
+                    KeyboardSoundManager.init(
+                        context = this@AIKeyboardService,
+                        initialProfile = initialSoundProfile,
+                        initialCustomUri = initialCustomSoundUri
+                    )
+                    KeyboardSoundManager.isEnabled = false
+                }
+                
+                Log.d(TAG, "✅ Sound settings loaded")
+                com.kvive.keyboard.utils.StartupProfiler.endOperation("LoadSoundSettings")
             } catch (e: Exception) {
-                Log.w(TAG, "⚠️ Failed to preload keymaps", e)
+                Log.e(TAG, "❌ Error loading sound settings", e)
+                com.kvive.keyboard.utils.StartupProfiler.endOperation("LoadSoundSettings")
             }
         }
-
-        // Kick off heavy async initialization after UI thread is free
-        mainHandler.post {
-            initializeAsyncComponents()
+        
+        // Step 2: Initialize core components in background
+        coroutineScope.launch(Dispatchers.IO) {
+            com.kvive.keyboard.utils.StartupProfiler.startOperation("InitCoreComponents")
+            try {
+                initializeCoreComponents()
+                Log.d(TAG, "✅ Core components initialized")
+                com.kvive.keyboard.utils.StartupProfiler.endOperation("InitCoreComponents")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error initializing core components", e)
+                com.kvive.keyboard.utils.StartupProfiler.endOperation("InitCoreComponents")
+            }
         }
-            // onCreate complete
+        
+        // Step 3: Load settings and apply them
+        coroutineScope.launch(Dispatchers.IO) {
+            com.kvive.keyboard.utils.StartupProfiler.startOperation("LoadAndApplySettings")
+            try {
+                val loadedSettings = settingsManager.loadAll()
+                withContext(Dispatchers.Main) {
+                    applyLoadedSettings(loadedSettings, logSuccess = true)
+                    updateSuggestionControllerSettings()
+                }
+                Log.d(TAG, "✅ Settings loaded and applied")
+                com.kvive.keyboard.utils.StartupProfiler.endOperation("LoadAndApplySettings")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error loading settings", e)
+                com.kvive.keyboard.utils.StartupProfiler.endOperation("LoadAndApplySettings")
+            }
+        }
+        
+        // Step 4: Initialize multilingual components
+        coroutineScope.launch(Dispatchers.IO) {
+            com.kvive.keyboard.utils.StartupProfiler.startOperation("InitMultilingualComponents")
+            try {
+                loadLanguagePreferences()
+                withContext(Dispatchers.Main) {
+                    initializeMultilingualComponents()
+                    initializeThemeChannel()
+                }
+                Log.d(TAG, "✅ Multilingual components initialized")
+                com.kvive.keyboard.utils.StartupProfiler.endOperation("InitMultilingualComponents")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error initializing multilingual components", e)
+                com.kvive.keyboard.utils.StartupProfiler.endOperation("InitMultilingualComponents")
+            }
+        }
+        
+        // Step 5: Start settings polling and preload keymaps
+        coroutineScope.launch(Dispatchers.IO) {
+            com.kvive.keyboard.utils.StartupProfiler.startOperation("PreloadKeymaps")
+            try {
+                withContext(Dispatchers.Main) {
+                    startSettingsPolling()
+                }
+                
+                languageLayoutAdapter.preloadKeymaps(enabledLanguages)
+                Log.d(TAG, "✅ Keymaps preloaded")
+                com.kvive.keyboard.utils.StartupProfiler.endOperation("PreloadKeymaps")
+            } catch (e: Exception) {
+                Log.w(TAG, "⚠️ Failed to preload keymaps", e)
+                com.kvive.keyboard.utils.StartupProfiler.endOperation("PreloadKeymaps")
+            }
+        }
+        
+        // Step 6: Initialize async components (heaviest work)
+        mainHandler.postDelayed({
+            initializeAsyncComponents()
+        }, 100) // Small delay to ensure UI is fully rendered
+        
+        Log.d(TAG, "✅ Deferred initialization kicked off in ${System.currentTimeMillis() - startTime}ms")
+        com.kvive.keyboard.utils.StartupProfiler.endOperation("DeferredComponents")
+        
+        // Print profiling summary after 5 seconds (when all initialization should be done)
+        mainHandler.postDelayed({
+            com.kvive.keyboard.utils.StartupProfiler.printSummary()
+        }, 5000)
     }
     
     /**
@@ -1534,7 +1564,7 @@ class AIKeyboardService : InputMethodService(),
                 Log.d(TAG, "📦 Raw font prefs → portrait=$rawPortrait landscape=$rawLandscape uiPortrait=$rawPortraitUi uiLandscape=$rawLandscapeUi")
             }
             // ✅ FIX: Read font scale from the correct keys
-            val fontScaleP = p.getFloatCompat("flutter.keyboard.fontScalePortrait", 2.0f)
+            val fontScaleP = p.getFloatCompat("flutter.keyboard.fontScalePortrait", 3.0f)
             val fontScaleL = p.getFloatCompat("flutter.keyboard.fontScaleLandscape", 1.0f)
             Log.d(TAG, "📝 Font scale settings: portrait=$fontScaleP, landscape=$fontScaleL")
             val borderless = p.getBoolean("flutter.keyboard.borderlessKeys", false)
@@ -1565,8 +1595,8 @@ class AIKeyboardService : InputMethodService(),
             val scaleY = if (isLandscape) scaleYLandscape else scaleYPortrait
             Log.d(TAG, "📏 Keyboard scale settings: orientation=${if (isLandscape) "LANDSCAPE" else "PORTRAIT"}, scaleY=$scaleY (portrait=$scaleYPortrait, landscape=$scaleYLandscape)")
             val spaceVdp = p.getIntCompat("flutter.keyboard.keySpacingVdp", 7)
-            val spaceHdp = p.getIntCompat("flutter.keyboard.keySpacingHdp", 4)
-            val edgePaddingDp = max(10, spaceHdp * 2)
+            val spaceHdp = p.getIntCompat("flutter.keyboard.keySpacingHdp", 3)
+            val edgePaddingDp = max(8, spaceHdp * 2)
             val bottomP = p.getIntCompat("flutter.keyboard.bottomOffsetPortraitDp", 1)
             val bottomL = p.getIntCompat("flutter.keyboard.bottomOffsetLandscapeDp", 2)
             val popupPreview = false // ✅ DISABLED: Key preview popup permanently removed from project
@@ -3624,27 +3654,32 @@ class AIKeyboardService : InputMethodService(),
     
     /**
      * 🔍 DEEP DIAGNOSTIC: Log every key press with full context for audit
+     * ⚡ PERFORMANCE: Only enabled in debug builds to avoid slowing down typing
      */
     private fun logKeyDiagnostics(primaryCode: Int, keyCodes: IntArray?) {
-        val keyLabel = when (primaryCode) {
-            Keyboard.KEYCODE_SHIFT, -1 -> "SHIFT"
-            Keyboard.KEYCODE_DELETE, -5 -> "DELETE"
-            Keyboard.KEYCODE_DONE, -4 -> "RETURN"
-            32 -> "SPACE"
-            -14 -> "GLOBE"
-            -10 -> "?123"
-            -11 -> "ABC"
-            -20 -> "=<"
-            -21 -> "123"
-            else -> if (primaryCode > 0 && primaryCode < 128) primaryCode.toChar().toString() else "CODE_$primaryCode"
+        if (BuildConfig.DEBUG) {
+            val keyLabel = when (primaryCode) {
+                Keyboard.KEYCODE_SHIFT, -1 -> "SHIFT"
+                Keyboard.KEYCODE_DELETE, -5 -> "DELETE"
+                Keyboard.KEYCODE_DONE, -4 -> "RETURN"
+                32 -> "SPACE"
+                -14 -> "GLOBE"
+                -10 -> "?123"
+                -11 -> "ABC"
+                -20 -> "=<"
+                -21 -> "123"
+                else -> if (primaryCode > 0 && primaryCode < 128) primaryCode.toChar().toString() else "CODE_$primaryCode"
+            }
+            
+            Log.d("KeyAudit", "🔍 Key pressed: $keyLabel | Code: $primaryCode | Mode: $currentKeyboardMode | Lang: $currentLanguage")
         }
-        
-        Log.d("KeyAudit", "🔍 Key pressed: $keyLabel | Code: $primaryCode | Mode: $currentKeyboardMode | Lang: $currentLanguage")
     }
     
     override fun onKey(primaryCode: Int, keyCodes: IntArray?) {
-        // 🔍 DIAGNOSTIC: Log every key press with full context
-        logKeyDiagnostics(primaryCode, keyCodes)
+        // 🔍 DIAGNOSTIC: Log every key press with full context (only in DEBUG)
+        if (BuildConfig.DEBUG) {
+            logKeyDiagnostics(primaryCode, keyCodes)
+        }
 
         // Handle emoji search input
         if (emojiSearchActive && isEmojiPanelVisible) {
@@ -3676,7 +3711,9 @@ class AIKeyboardService : InputMethodService(),
         val isEnterKey = (primaryCode == Keyboard.KEYCODE_DONE || primaryCode == -4)
         
         if (isSeparator(primaryCode) && !isEnterKey && primaryCode != KEYCODE_SPACE) {
-            Log.d(TAG, "🔍 Non-space separator detected: code=$primaryCode - committing WITHOUT autocorrect")
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "🔍 Non-space separator detected: code=$primaryCode - committing WITHOUT autocorrect")
+            }
             playClick(primaryCode)
             
             val ic = currentInputConnection
@@ -3822,10 +3859,9 @@ class AIKeyboardService : InputMethodService(),
             }
             
             // Disable undo once user continues typing (accepts the correction)
-            // ✅ FIX: Use safe call instead of !!
             lastCorrection?.let { (_, corrected) ->
-                if (undoAvailable && !corrected.startsWith(currentWord, ignoreCase = true)) {
-                    undoAvailable = false
+                if (!corrected.startsWith(currentWord, ignoreCase = true)) {
+                    lastCorrection = null // Clear to disable undo
                     Log.d(TAG, "🔒 Undo disabled - user accepted correction and continued typing")
                 }
             }
@@ -4103,8 +4139,7 @@ class AIKeyboardService : InputMethodService(),
                         lastSpaceTimestamp = 0L
                     }
                     correctionRejected = true
-                    undoAvailable = false
-                    lastCorrection = null
+                    lastCorrection = null // Clear to disable undo
                     wordHistory.add(original)
                     if (wordHistory.size > 20) {
                         wordHistory.removeAt(0)
@@ -4163,9 +4198,12 @@ class AIKeyboardService : InputMethodService(),
             }
             
             val confidence = autocorrectEngine.getConfidence(original, best)
-            // ========== GBOARD CONFIDENCE THRESHOLD: 0.72 ==========
-            val shouldReplace = confidence >= 0.72f && !best.equals(original, ignoreCase = true)
-            Log.d(TAG, "🔍 Confidence: $confidence, shouldReplace: $shouldReplace (threshold: 0.72)")
+            // ✅ PATCH 4: Dynamic confidence threshold based on word length (Gboard V3)
+            val requiredConf = autocorrectEngine.requiredConfidence(original)
+            val shouldReplace = confidence >= requiredConf && !best.equals(original, ignoreCase = true)
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "🔍 Confidence: $confidence, shouldReplace: $shouldReplace (threshold: $requiredConf for '${original}')")
+            }
             
             ic.beginBatchEdit()
             if (shouldReplace) {
@@ -4176,10 +4214,9 @@ class AIKeyboardService : InputMethodService(),
                 // Enhanced single-line logging
                 Log.d(TAG, "⚙️ Applying correction: '$original'→'$replaced' (conf=$confidence, lang=$currentLanguage)")
                 
-                // Store correction for undo functionality
+                // Store correction for undo functionality (non-null = undo available)
                 lastCorrection = Pair(original, replaced)
                 correctionRejected = false
-                undoAvailable = true
                 Log.d(TAG, "💾 Stored last correction for undo: '$original' → '$replaced'")
                 
                 // ✅ Add corrected word to history for next-word prediction
@@ -4259,58 +4296,8 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
-    private fun performAutoCorrection(ic: InputConnection) {
-        // ✅ Enhanced autocorrect using UnifiedAutocorrectEngine
-        val word = currentWord.trim()
-        if (word.isEmpty() || word.length < 2) {
-            currentWord = ""
-            return
-        }
-        
-        try {
-            // Check if engine is ready
-            if (!::autocorrectEngine.isInitialized || !autocorrectEngine.hasLanguage(currentLanguage)) {
-                Log.w(TAG, "Autocorrect engine not ready")
-                currentWord = ""
-                return
-            }
-            
-            // Get suggestions from UnifiedAutocorrectEngine
-            val suggestions = autocorrectEngine.getSuggestions(word, currentLanguage, limit = 3)
-            
-            if (suggestions.isNotEmpty()) {
-                val best = suggestions.first()
-                
-                // Calculate confidence using engine's method
-                val confidence = autocorrectEngine.getConfidence(word, best)
-                
-                // Auto-apply if confidence is high and word is different
-                if (confidence > 0.7f && best.lowercase() != word.lowercase()) {
-                    Log.d(TAG, "✨ AutoCorrect applied: $word → $best (confidence: $confidence)")
-                    
-                    // Delete the typed word
-                    ic.deleteSurroundingText(word.length, 0)
-                    
-                    // Insert corrected word (preserve original capitalization pattern)
-                    val corrected = if (word.firstOrNull()?.isUpperCase() == true) {
-                        best.replaceFirstChar { it.uppercase() }
-                    } else {
-                        best
-                    }
-                    ic.commitText(corrected, 1)
-                    
-                    currentWord = ""
-                    return
-                } else {
-                    Log.d(TAG, "AutoCorrect skipped: $word → $best (confidence: $confidence, threshold: 0.7)")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in performAutoCorrection", e)
-        }
-        
-        currentWord = ""
-    }
+    // ❌ REMOVED: performAutoCorrection() - Dead code that could accidentally trigger autocorrect during typing
+    // Autocorrect ONLY happens on SPACE press via handleSpace() -> runAutocorrectOnLastWord()
     
     
     // For double-backspace revert functionality
@@ -4411,47 +4398,45 @@ class AIKeyboardService : InputMethodService(),
         }
         
         // Handle Gboard-style undo autocorrect on first backspace
-        // ✅ FIX: Use safe call instead of !!
-        if (undoAvailable) {
-            lastCorrection?.let { (original, corrected) ->
-                // Check if the corrected word is still present (user hasn't typed anything else)
-                val textBefore = ic.getTextBeforeCursor(corrected.length + 5, 0)?.toString() ?: ""
-                if (textBefore.endsWith(corrected) || textBefore.endsWith("$corrected ")) {
-                    ic.beginBatchEdit()
-                    // Delete the corrected word (and trailing space if present)
-                    val deleteLength = if (textBefore.endsWith(" ")) corrected.length + 1 else corrected.length
-                    ic.deleteSurroundingText(deleteLength, 0)
-                    // Restore original word
-                    ic.commitText(original, 1)
-                    ic.endBatchEdit()
-                    
-                    Log.d(TAG, "↩️ Undo autocorrect: reverted '$corrected' → '$original'")
-                    
-                    // Mark as rejected and disable undo
-                    correctionRejected = true
-                    undoAvailable = false
-                    currentWord = original
-                    
-                    // ✅ FIX: Persist the rejection so hitting space again doesn't re-trigger it
-                    rejectedOriginal = original
-                    
-                    // Phase 5: Learn from rejection
-                    onCorrectionRejected(original, corrected)
-                    
-                    // ✅ ENHANCEMENT: After backspace undo, show ONLY the original word - no other suggestions
-                    // User wants their typed word back, not dictionary alternatives
-                    if (areSuggestionsActive()) {
-                        // Show only the original word in suggestion bar, no alternatives
-                        val originalWordOnly = listOf(original)
-                        updateSuggestionUI(originalWordOnly)
-                        Log.d(TAG, "📝 Showing only original word after undo: '$original'")
-                    } else {
-                        clearSuggestions()
-                    }
-                    
-                    // ✅ CRITICAL FIX: Explicit return to prevent falling through to standard backspace
-                    return
+        // ✅ SIMPLIFIED: Check lastCorrection directly (non-null = undo available)
+        lastCorrection?.let { (original, corrected) ->
+            // Check if the corrected word is still present (user hasn't typed anything else)
+            val textBefore = ic.getTextBeforeCursor(corrected.length + 5, 0)?.toString() ?: ""
+            if (textBefore.endsWith(corrected) || textBefore.endsWith("$corrected ")) {
+                ic.beginBatchEdit()
+                // Delete the corrected word (and trailing space if present)
+                val deleteLength = if (textBefore.endsWith(" ")) corrected.length + 1 else corrected.length
+                ic.deleteSurroundingText(deleteLength, 0)
+                // Restore original word
+                ic.commitText(original, 1)
+                ic.endBatchEdit()
+                
+                Log.d(TAG, "↩️ Undo autocorrect: reverted '$corrected' → '$original'")
+                
+                // Mark as rejected and clear undo (set to null to disable)
+                correctionRejected = true
+                lastCorrection = null
+                currentWord = original
+                
+                // ✅ Persist the rejection so hitting space again doesn't re-trigger it
+                rejectedOriginal = original
+                
+                // Phase 5: Learn from rejection
+                onCorrectionRejected(original, corrected)
+                
+                // ✅ ENHANCEMENT: After backspace undo, show ONLY the original word - no other suggestions
+                // User wants their typed word back, not dictionary alternatives
+                if (areSuggestionsActive()) {
+                    // Show only the original word in suggestion bar, no alternatives
+                    val originalWordOnly = listOf(original)
+                    updateSuggestionUI(originalWordOnly)
+                    Log.d(TAG, "📝 Showing only original word after undo: '$original'")
+                } else {
+                    clearSuggestions()
                 }
+                
+                // ✅ CRITICAL FIX: Explicit return to prevent falling through to standard backspace
+                return
             }
         }
         
@@ -4488,7 +4473,6 @@ class AIKeyboardService : InputMethodService(),
         }
         
         // Check if user is manually editing a corrected word (rejection signal)
-        // ✅ FIX: Use safe call instead of !!
         if (!correctionRejected) {
             lastCorrection?.let { (original, corrected) ->
                 val textBefore = ic.getTextBeforeCursor(50, 0)?.toString() ?: ""
@@ -4496,16 +4480,14 @@ class AIKeyboardService : InputMethodService(),
                 // If user is deleting characters from the corrected word, mark as rejected
                 if (textBefore.contains(original.take(2)) || currentWord.startsWith(original.take(2))) {
                     correctionRejected = true
-                    undoAvailable = false
-                    // ✅ FIX: Persist rejection here too
+                    lastCorrection = null // Clear to disable undo
+                    // ✅ Persist rejection here too
                     rejectedOriginal = original
                     
                     Log.d(TAG, "🚫 User manually rejected autocorrect '$original' → '$corrected'")
                     
                     // Phase 5: Learn from rejection
                     onCorrectionRejected(original, corrected)
-                    
-                    lastCorrection = null
                 }
             }
         }
@@ -4630,7 +4612,9 @@ class AIKeyboardService : InputMethodService(),
         // ✅ FIX 2: Run autocorrect on SPACE press only
         // This is the ONLY place where autocorrect is triggered during typing
         if (!dictionaryExpanded && isAutoCorrectEnabled()) {
-            Log.d(TAG, "🔍 SPACE pressed - running autocorrect on last word")
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "🔍 SPACE pressed - running autocorrect on last word")
+            }
             runAutocorrectOnLastWord(ic)
         }
         
@@ -4654,32 +4638,42 @@ class AIKeyboardService : InputMethodService(),
             
             // ✅ FIX 7: Skip autocorrect on 1-2 letter words
             if (original.length < 3) {
-                Log.d(TAG, "🔍 Skipping autocorrect - word too short: '$original' (${original.length} chars)")
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "🔍 Skipping autocorrect - word too short: '$original' (${original.length} chars)")
+                }
                 return
             }
             
             // ✅ FIX 8: Check if word was previously rejected
             if (original.equals(rejectedOriginal, ignoreCase = true)) {
-                Log.d(TAG, "🚫 Skipping autocorrect - word was previously rejected: '$original'")
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "🚫 Skipping autocorrect - word was previously rejected: '$original'")
+                }
                 return
             }
             
             // Check if engine is ready
             if (!::autocorrectEngine.isInitialized || !autocorrectEngine.hasLanguage(currentLanguage)) {
-                Log.d(TAG, "🔍 Autocorrect engine not ready for $currentLanguage")
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "🔍 Autocorrect engine not ready for $currentLanguage")
+                }
                 return
             }
             
             // Get best suggestion
             val best = autocorrectEngine.getBestSuggestion(original, currentLanguage)
             if (best == null || best.equals(original, ignoreCase = true)) {
-                Log.d(TAG, "🔍 No autocorrect needed for: '$original'")
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "🔍 No autocorrect needed for: '$original'")
+                }
                 return
             }
             
             // Check blacklist
             if (::userDictionaryManager.isInitialized && userDictionaryManager.isBlacklisted(original, best)) {
-                Log.d(TAG, "🚫 Autocorrect blocked by blacklist: '$original' → '$best'")
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "🚫 Autocorrect blocked by blacklist: '$original' → '$best'")
+                }
                 return
             }
             
@@ -4694,10 +4688,9 @@ class AIKeyboardService : InputMethodService(),
             ic.endBatchEdit()
             isCommittingText = false
             
-            // Store for undo
+            // Store for undo (non-null = undo available)
             lastCorrection = Pair(original, best)
             correctionRejected = false
-            undoAvailable = true
             
             // Update word history
             wordHistory.add(best)
@@ -4715,26 +4708,34 @@ class AIKeyboardService : InputMethodService(),
         try {
             // ✅ FIX 7: Skip autocorrect on 1-2 letter words
             if (word.length < 3) {
-                Log.d(TAG, "🔍 Skipping swipe autocorrect - word too short: '$word'")
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "🔍 Skipping swipe autocorrect - word too short: '$word'")
+                }
                 return
             }
             
             // ✅ FIX 8: Check if word was previously rejected
             if (word.equals(rejectedOriginal, ignoreCase = true)) {
-                Log.d(TAG, "🚫 Skipping swipe autocorrect - word was previously rejected: '$word'")
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "🚫 Skipping swipe autocorrect - word was previously rejected: '$word'")
+                }
                 return
             }
             
             // Check if engine is ready
             if (!::autocorrectEngine.isInitialized || !autocorrectEngine.hasLanguage(currentLanguage)) {
-                Log.d(TAG, "🔍 Swipe autocorrect engine not ready for $currentLanguage")
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "🔍 Swipe autocorrect engine not ready for $currentLanguage")
+                }
                 return
             }
             
             // Get best suggestion
             val best = autocorrectEngine.getBestSuggestion(word, currentLanguage)
             if (best == null || best.equals(word, ignoreCase = true)) {
-                Log.d(TAG, "🔍 No swipe autocorrect needed for: '$word'")
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "🔍 No swipe autocorrect needed for: '$word'")
+                }
                 return
             }
             
@@ -4760,10 +4761,9 @@ class AIKeyboardService : InputMethodService(),
             // Update tracking variables
             lastCommittedSwipeWord = best
             
-            // Store for undo
+            // Store for undo (non-null = undo available)
             lastCorrection = Pair(word, best)
             correctionRejected = false
-            undoAvailable = true
             
             Log.d(TAG, "✅ Swipe autocorrect applied: '$word' → '$best'")
         } catch (e: Exception) {
@@ -4812,24 +4812,35 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Phase 5: Called when user rejects an autocorrect suggestion
-     * Negative learning - blacklists the correction
+     * ✅ V3 PACK Section 5: Enhanced rejection handling
+     * - Case-insensitive blacklisting
+     * - Context-aware learning
+     * - Weighted negative feedback
      */
     private fun onCorrectionRejected(original: String, corrected: String) {
         try {
             if (::userDictionaryManager.isInitialized) {
-                userDictionaryManager.blacklistCorrection(original, corrected)
+                // ✅ V3: Case-insensitive blacklist (handles "The" vs "the", etc.)
+                userDictionaryManager.blacklistCorrection(
+                    original.lowercase(), 
+                    corrected.lowercase()
+                )
                 
-                // Learn the original word as valid
+                // Learn the original word as valid (preserve original case)
                 userDictionaryManager.learnWord(original)
                 
-                // Tell autocorrect engine
+                // Tell autocorrect engine with weighted negative feedback
                 if (::autocorrectEngine.isInitialized) {
                     autocorrectEngine.learnFromUser(original, original, currentLanguage)
+                    
+                    // ✅ V3: Clear accept counter for this correction (if any)
+                    // This prevents auto-promotion of rejected corrections
                     autocorrectEngine.clearCache()
                 }
                 
-                Log.d(TAG, "🚫 Rejected correction: '$original' ≠ '$corrected'")
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "🚫 Rejected correction: '$original' ≠ '$corrected' (blacklisted case-insensitively)")
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to process rejected correction", e)
@@ -4841,75 +4852,18 @@ class AIKeyboardService : InputMethodService(),
     private fun finishCurrentWord() {
         if (currentWord.isEmpty()) return
         
-        // ✅ FIX: NEVER autocorrect during typing - only show suggestions
-        // Autocorrect should ONLY happen when user presses SPACE button
-        coroutineScope.launch {
-            try {
-                val prev1 = if (wordHistory.isNotEmpty()) wordHistory.last() else ""
-                val prev2 = if (wordHistory.size >= 2) wordHistory[wordHistory.size - 2] else ""
-                
-                val context = listOfNotNull(prev1, prev2).filter { it.isNotBlank() }
-                
-                // ✅ ALWAYS get ONLY typing suggestions (no autocorrect during typing)
-                val allSuggestions = if (::autocorrectEngine.isInitialized) {
-                    autocorrectEngine.suggestForTyping(currentWord, context)
-                } else {
-                    emptyList()
-                }
-                
-                // Phase 5: Filter out blacklisted corrections
-                val suggestions = if (::userDictionaryManager.isInitialized) {
-                    allSuggestions.filter { suggestion ->
-                        !userDictionaryManager.isBlacklisted(currentWord, suggestion.text)
-                    }.also { filtered ->
-                        val blacklistedCount = allSuggestions.size - filtered.size
-                        if (blacklistedCount > 0) {
-                            Log.d(TAG, "🚫 Filtered $blacklistedCount blacklisted suggestions for '$currentWord'")
-                        }
-                    }
-                } else {
-                    allSuggestions
-                }
-                
-                // ✅ REMOVED: Auto-apply correction logic
-                // Autocorrect now ONLY happens on SPACE press via handleSpace() -> runAutocorrectOnLastWord()
-                
-                // Just add original word to history (no auto-correction)
-                wordHistory.add(currentWord)
-                
-                // Phase 3: Learn original word
-                onWordCommitted(currentWord)
-                
-                // ========== CLEAR TIMING HISTORY AFTER WORD COMMIT ==========
-                if (::autocorrectEngine.isInitialized) {
-                    autocorrectEngine.clearTimingHistory()
-                }
-                
-                // Update suggestion strip with candidates
-                withContext(Dispatchers.Main) {
-                    // Update suggestion strip with top suggestions
-                    val suggestionTexts = suggestions.map { suggestion ->
-                        if (suggestion.source == SuggestionSource.CORRECTION) {
-                            "✓ ${suggestion.text}" // Mark corrections
-                        } else {
-                            suggestion.text
-                        }
-                    }
-                    updateSuggestionUI(suggestionTexts)
-                }
-                
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in enhanced autocorrect pipeline", e)
-                // Fallback to original behavior
-                wordHistory.add(currentWord)
-            }
-        }
+        // ✅ PERFORMANCE FIX: No correction logic during typing
+        // Autocorrect ONLY happens on SPACE press via handleSpace() -> runAutocorrectOnLastWord()
         
-        // Learn from user input if AI is ready
-        if (isAIReady) {
-            val context = getRecentContext()
-            // Learning moved to UnifiedAI internal processing
-            Log.d(TAG, "AI context learning: $currentWord with context: $context")
+        // Just add original word to history (no auto-correction during typing)
+        wordHistory.add(currentWord)
+        
+        // Learn original word for user dictionary
+        onWordCommitted(currentWord)
+        
+        // Clear timing history to avoid memory buildup
+        if (::autocorrectEngine.isInitialized) {
+            autocorrectEngine.clearTimingHistory()
         }
         
         // Clear current word
@@ -4924,7 +4878,9 @@ class AIKeyboardService : InputMethodService(),
     private fun getRecentContext(): List<String> {
         val start = max(0, wordHistory.size - 3)
         val context = wordHistory.subList(start, wordHistory.size)
-        Log.d(TAG, "🔍 getRecentContext: wordHistory.size=${wordHistory.size}, context=$context")
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "🔍 getRecentContext: wordHistory.size=${wordHistory.size}, context=$context")
+        }
         return context
     }
     
@@ -5520,7 +5476,34 @@ class AIKeyboardService : InputMethodService(),
         // Launch coroutine to fetch suggestions
         coroutineScope.launch {
             try {
-                // Get unified suggestions from controller
+                // ✅ PATCH 2: Skip next-word prediction during typing
+                // Only show typing suggestions when user is actively typing (word not empty)
+                if (word.isNotEmpty() && word.length < 2) {
+                    // Word too short for meaningful suggestions
+                    withContext(Dispatchers.Main) {
+                        updateSuggestionUI(listOf(word))
+                    }
+                    return@launch
+                }
+                
+                if (word.isNotEmpty()) {
+                    // User is typing - show ONLY typing suggestions (no next-word predictions)
+                    if (::autocorrectEngine.isInitialized) {
+                        val typingSuggestions = autocorrectEngine.suggestForTyping(word, context)
+                        val suggestionTexts = typingSuggestions.take(suggestionCount).map { it.text }
+                        
+                        withContext(Dispatchers.Main) {
+                            updateSuggestionUI(suggestionTexts)
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            updateSuggestionUI(emptyList())
+                        }
+                    }
+                    return@launch
+                }
+                
+                // Word is empty - get full unified suggestions (includes next-word)
                 val unifiedSuggestions = unifiedSuggestionController.getUnifiedSuggestions(
                     prefix = word,
                     context = context,
@@ -5779,7 +5762,7 @@ class AIKeyboardService : InputMethodService(),
                 // ✅ PERFORMANCE: Removed excessive logging
             }
         } else {
-            Log.d(TAG, "📳 Vibration disabled: vibrationEnabled=$vibrationEnabled")
+            // ✅ PERFORMANCE: Removed vibration disabled log (was firing on every key press)
         }
     }
     
@@ -5808,7 +5791,7 @@ class AIKeyboardService : InputMethodService(),
     private fun vibrateKeyPress(keyCode: Int = 0, channel: VibrationChannel = VibrationChannel.KEY_PRESS) {
         try {
             if (!canVibrate(channel)) {
-                Log.d(TAG, "📳 vibrateKeyPress skipped: canVibrate=false")
+                // ✅ PERFORMANCE: Removed log that was firing on every key press
                 return
             }
             
@@ -5829,7 +5812,7 @@ class AIKeyboardService : InputMethodService(),
 
             val safeDuration = computeVibrationDuration(channel)
             if (safeDuration <= 0) {
-                Log.d(TAG, "📳 vibrateKeyPress skipped: duration=$safeDuration")
+                // ✅ PERFORMANCE: Removed log that was firing on every key press
                 return
             }
 
@@ -7294,11 +7277,11 @@ class AIKeyboardService : InputMethodService(),
 
     private fun canVibrate(channel: VibrationChannel): Boolean {
         if (!vibrationEnabled) {
-            Log.d(TAG, "📳 canVibrate=false: vibrationEnabled=$vibrationEnabled")
+            // ✅ PERFORMANCE: Removed log that was firing on every key press
             return false
         }
         if (hapticIntensity <= 0) {
-            Log.d(TAG, "📳 canVibrate=false: hapticIntensity=$hapticIntensity")
+            // ✅ PERFORMANCE: Removed log that was firing on every key press
             return false
         }
         val channelAllowed = when (channel) {
@@ -7307,7 +7290,7 @@ class AIKeyboardService : InputMethodService(),
             VibrationChannel.REPEATED -> repeatedActionVibration
         }
         if (!channelAllowed) {
-            Log.d(TAG, "📳 canVibrate=false: channel=$channel not allowed")
+            // ✅ PERFORMANCE: Removed log that was firing on every key press
         }
         return channelAllowed
     }

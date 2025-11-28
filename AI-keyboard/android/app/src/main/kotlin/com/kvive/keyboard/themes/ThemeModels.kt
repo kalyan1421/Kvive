@@ -219,7 +219,7 @@ data class KeyboardThemeV2(
                 pressed = parseColor(obj.optString("pressed", "#505056")),
                 rippleAlpha = obj.optDouble("rippleAlpha", 0.12).toFloat(),
                 border = parseBorder(obj.optJSONObject("border")),
-                radius = obj.optDouble("radius", 8.0).toFloat(),
+                radius = obj.optDouble("radius", 12.0).toFloat(),
                 shadow = parseShadow(obj.optJSONObject("shadow")),
                 font = parseFont(obj.optJSONObject("font")),
                 styleId = obj.optString("styleId", "default"),
@@ -283,15 +283,15 @@ data class KeyboardThemeV2(
         private fun parseFont(obj: JSONObject?): Keys.Font {
             if (obj == null) return Keys.Font(
                 family = "Roboto",
-                sizeSp = 18.0f,
-                bold = false,
+                sizeSp = 24.0f,
+                bold = true,
                 italic = false
             )
             
             return Keys.Font(
                 family = obj.optString("family", "Roboto"),
-                sizeSp = obj.optDouble("sizeSp", 18.0).toFloat(),
-                bold = obj.optBoolean("bold", false),
+                sizeSp = obj.optDouble("sizeSp", 24.0).toFloat(),
+                bold = obj.optBoolean("bold", true),
                 italic = obj.optBoolean("italic", false)
             )
         }
@@ -495,7 +495,7 @@ data class KeyboardThemeV2(
                     color = Color.parseColor("#FF000000"),
                     widthDp = 0f
                 ),
-                radius = 4.0f,
+                radius = 12.0f,
                 shadow = Keys.Shadow(
                     enabled = true,
                     elevationDp = 1.0f,
@@ -503,8 +503,8 @@ data class KeyboardThemeV2(
                 ),
                 font = Keys.Font(
                     family = "Roboto",
-                    sizeSp = 16.0f,
-                    bold = false,
+                    sizeSp = 24.0f,
+                    bold = true,
                     italic = false
                 )
             )
@@ -732,7 +732,7 @@ data class ThemePaletteV2(
     val keyText: Int = applyBrightness(theme.keys.text, inverse = true)
     val keyPressed: Int = applyBrightness(theme.keys.pressed)
     val keyBorder: Int = theme.keys.border.color
-    val keyRadius: Float = theme.keys.radius.coerceIn(4f, 10f)
+    val keyRadius: Float = theme.keys.radius.coerceIn(4f, 16f)
     val keyShadowEnabled: Boolean = theme.keys.shadow.enabled
     val isTransparentPreset: Boolean = theme.keys.preset.equals("transparent", ignoreCase = true)
     

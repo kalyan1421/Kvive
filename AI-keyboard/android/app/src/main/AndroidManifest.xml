@@ -95,6 +95,11 @@
             android:name="flutterEmbedding"
             android:value="2" />
         
+        <!-- Disable Impeller rendering backend to fix Mali GPU compatibility issues -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
+        
         <!-- Default notification channel for FCM -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"

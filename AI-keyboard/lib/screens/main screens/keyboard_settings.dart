@@ -114,7 +114,7 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
       verticalKeySpacing =
           prefs.getInt('keyboard.keySpacingVdp')?.toDouble() ?? 5.0;
       horizontalKeySpacing =
-          prefs.getInt('keyboard.keySpacingHdp')?.toDouble() ?? 2.0;
+          prefs.getInt('keyboard.keySpacingHdp')?.toDouble() ?? 0.0;
       portraitBottomOffset =
           prefs.getInt('keyboard.bottomOffsetPortraitDp')?.toDouble() ?? 1.0;
       landscapeBottomOffset =
@@ -867,6 +867,7 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
             // Key Press Section
             _buildSectionHeader('Key Press'),
             const SizedBox(height: 12),
+            /* // ✅ REMOVED: Popup visibility setting removed from project
             _buildToggleSetting(
               title: 'Popup Visibility',
               description: 'Show popup preview when pressing keys',
@@ -876,6 +877,7 @@ class _KeyboardSettingsScreenState extends State<KeyboardSettingsScreen> {
                 _saveSettings(immediate: true);
               },
             ),
+            */
             const SizedBox(height: 8),
             _buildSliderSetting(
               title: 'Long Press Delay',

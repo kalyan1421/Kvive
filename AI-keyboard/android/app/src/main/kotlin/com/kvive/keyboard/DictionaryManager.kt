@@ -56,9 +56,10 @@ class DictionaryManager(context: Context) : BaseManager(context) {
     /**
      * Initialize the dictionary manager
      * Phase 1: Loads language-specific dictionary from /files/dictionaries/{lang}.json
+     * 🚀 PERFORMANCE: Lazy initialization - loads data on first access
      */
     override fun initialize() {
-        logW("Initializing DictionaryManager with multi-language support")
+        logW("Initializing DictionaryManager with multi-language support (lazy mode)")
         
         // ✅ FIX: Load settings from FlutterSharedPreferences (where UI saves them)
         val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
@@ -69,7 +70,25 @@ class DictionaryManager(context: Context) : BaseManager(context) {
         val flutterLanguage = flutterPrefs.getString("flutter.keyboard_language", null)
         currentLanguage = savedLanguage ?: flutterLanguage ?: "en"
         
-        logW("📚 Current language: $currentLanguage")
+        logW("📚 Current language: $currentLanguage (lazy loading enabled)")
+        
+        // 🚀 DEFER LOADING: Don't load dictionary data until first access
+        // This dramatically speeds up startup time
+        // Dictionary will be loaded when getExpansion() or other methods are called
+        
+        logW("DictionaryManager initialized in lazy mode (enabled: $isEnabled)")
+    }
+    
+    /**
+     * Ensure dictionary is loaded for current language
+     * Called on first access to dictionary data
+     */
+    private fun ensureLoaded() {
+        if (entries.isNotEmpty() || currentLanguage.isEmpty()) {
+            return // Already loaded or invalid state
+        }
+        
+        logW("📖 Lazy loading dictionary for $currentLanguage...")
         
         // Load from language-specific JSON file
         val languageFile = File(languageDir, "$currentLanguage.json")
@@ -91,7 +110,7 @@ class DictionaryManager(context: Context) : BaseManager(context) {
         // Rebuild shortcut map with merged entries
         rebuildShortcutMap()
         
-        logW("DictionaryManager initialized with ${entries.size} entries for $currentLanguage (enabled: $isEnabled)")
+        logW("✅ Dictionary loaded: ${entries.size} entries for $currentLanguage")
     }
     
     // ==================== PHASE 1: MULTI-LANGUAGE METHODS ====================
@@ -193,6 +212,16 @@ class DictionaryManager(context: Context) : BaseManager(context) {
      * Get current active language
      */
     fun getCurrentLanguage(): String = currentLanguage
+
+    /**
+     * Export shortcuts as a frequency map for SymSpell/LM merging.
+     * Usage count is used as a lightweight frequency signal.
+     */
+    fun getShortcutFrequencies(): Map<String, Int> {
+        return entries.associate { entry ->
+            entry.shortcut.lowercase() to entry.usageCount.coerceAtLeast(1)
+        }
+    }
     
     /**
      * Delete dictionary for a specific language
@@ -333,6 +362,9 @@ class DictionaryManager(context: Context) : BaseManager(context) {
     fun getExpansion(word: String): DictionaryEntry? {
         if (!isEnabled || word.isBlank()) return null
         
+        // 🚀 Ensure dictionary is loaded on first access
+        ensureLoaded()
+        
         val cleanWord = word.trim().lowercase()
         return shortcutMap[cleanWord]
     }
@@ -351,6 +383,9 @@ class DictionaryManager(context: Context) : BaseManager(context) {
      */
     fun getMatchingShortcuts(prefix: String, limit: Int = 5): List<DictionaryEntry> {
         if (!isEnabled || prefix.isBlank()) return emptyList()
+        
+        // 🚀 Ensure dictionary is loaded on first access
+        ensureLoaded()
         
         val cleanPrefix = prefix.lowercase()
         return entries
@@ -387,6 +422,8 @@ class DictionaryManager(context: Context) : BaseManager(context) {
      * Get all dictionary entries
      */
     fun getAllEntries(): List<DictionaryEntry> {
+        // 🚀 Ensure dictionary is loaded on first access
+        ensureLoaded()
         return entries.toList()
     }
     
@@ -750,4 +787,3 @@ data class DictionaryEntry(
         }
     }
 }
-

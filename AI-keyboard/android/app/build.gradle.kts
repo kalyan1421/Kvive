@@ -25,6 +25,7 @@ android {
     namespace = "com.kvive.keyboard"
     compileSdk = 35
     ndkVersion = "29.0.14206865"
+    buildToolsVersion = "35.0.0"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -93,6 +94,12 @@ android {
             
             // Disable debug logging
             buildConfigField("boolean", "DEBUG", "false")
+            buildConfigField("boolean", "ENABLE_PROFILING", "false")
+            
+            // Performance optimizations
+            ndk {
+                debugSymbolLevel = "SYMBOL_TABLE"
+            }
         }
         debug {
             signingConfig = signingConfigs.getByName("debug")
@@ -101,6 +108,8 @@ android {
             // Removed applicationIdSuffix to avoid Firebase package name mismatch
             // Firebase google-services.json only has com.kvive.keyboard, not com.kvive.keyboard.debug
             versionNameSuffix = "-debug"
+            buildConfigField("boolean", "DEBUG", "true")
+            buildConfigField("boolean", "ENABLE_PROFILING", "true")
         }
     }
 }
@@ -151,4 +160,5 @@ dependencies {
     
     // Core library desugaring for flutter_local_notifications
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+
 }

@@ -173,7 +173,7 @@ class LanguageCacheManager {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase with robust duplicate app handling
+  // Initialize Firebase with robust duplicate app handling (CRITICAL - must complete)
   try {
     if (Firebase.apps.isEmpty) {
       await Firebase.initializeApp(
@@ -193,35 +193,60 @@ void main() async {
     }
   }
 
-  // Initialize the advanced feedback system
-  // KeyboardFeedbackSystem.initialize();
-  
-  // Ensure saved keyboard settings are applied before the user interacts again
-  await KeyboardSettingsBootstrapper.ensureBootstrapped();
-  
-  // Initialize theme manager
-  await FlutterThemeManager.instance.initialize();
-  
-  // Initialize language cache manager
-  await LanguageCacheManager.initialize();
-  
-  // Initialize clipboard service
-  try {
-    await ClipboardService.initialize();
-    debugPrint('✅ ClipboardService initialized');
-  } catch (e) {
-    debugPrint('⚠️ Error initializing ClipboardService: $e');
-  }
-
-  // Initialize FCM token service for notifications
-  try {
-    await FCMTokenService.initialize();
-    debugPrint('✅ FCMTokenService initialized');
-  } catch (e) {
-    debugPrint('⚠️ Error initializing FCMTokenService: $e');
-  }
-  
+  // ⚡ START APP IMMEDIATELY - Don't block UI initialization
   runApp(const AIKeyboardApp());
+  
+  // 🔄 Initialize services in background (non-blocking)
+  _initializeServicesInBackground();
+}
+
+/// Initialize services asynchronously in the background without blocking UI
+Future<void> _initializeServicesInBackground() async {
+  try {
+    debugPrint('🚀 Starting background service initialization...');
+    
+    // Initialize services in parallel for faster startup
+    await Future.wait([
+      // Keyboard settings bootstrapper
+      KeyboardSettingsBootstrapper.ensureBootstrapped().catchError((e) {
+        debugPrint('⚠️ KeyboardSettingsBootstrapper error: $e');
+        return null;
+      }),
+      
+      // Theme manager
+      FlutterThemeManager.instance.initialize().catchError((e) {
+        debugPrint('⚠️ FlutterThemeManager error: $e');
+        return null;
+      }),
+      
+      // Language cache manager
+      LanguageCacheManager.initialize().catchError((e) {
+        debugPrint('⚠️ LanguageCacheManager error: $e');
+        return null;
+      }),
+      
+      // Clipboard service
+      ClipboardService.initialize().then((_) {
+        debugPrint('✅ ClipboardService initialized');
+      }).catchError((e) {
+        debugPrint('⚠️ ClipboardService error: $e');
+        return null;
+      }),
+      
+      // FCM token service
+      FCMTokenService.initialize().then((_) {
+        debugPrint('✅ FCMTokenService initialized');
+      }).catchError((e) {
+        debugPrint('⚠️ FCMTokenService error: $e');
+        return null;
+      }),
+    ]);
+    
+    debugPrint('✅ All background services initialized successfully');
+  } catch (e) {
+    debugPrint('⚠️ Error during background initialization: $e');
+    // Don't crash the app - services will retry/recover as needed
+  }
 }
 
 // Global navigator key for deep linking

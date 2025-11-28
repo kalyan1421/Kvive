@@ -30,8 +30,7 @@
 -dontwarn okio.**
 -keepnames class okhttp3.internal.publicsuffix.PublicSuffixDatabase
 
-# Kotlin
--keep class kotlin.** { *; }
+# Kotlin - optimized for release performance
 -keep class kotlin.Metadata { *; }
 -dontwarn kotlin.**
 -keepclassmembers class **$WhenMappings {
@@ -39,6 +38,13 @@
 }
 -keepclassmembers class kotlin.Metadata {
     public <methods>;
+}
+# Allow R8 to optimize Kotlin code
+-assumenosideeffects class kotlin.jvm.internal.Intrinsics {
+    static void checkParameterIsNotNull(java.lang.Object, java.lang.String);
+    static void checkExpressionValueIsNotNull(java.lang.Object, java.lang.String);
+    static void checkNotNullExpressionValue(java.lang.Object, java.lang.String);
+    static void checkNotNullParameter(java.lang.Object, java.lang.String);
 }
 
 # Vosk (Speech Recognition)
@@ -97,13 +103,38 @@
     public static <fields>;
 }
 
-# Remove logging in release builds (strips Log.d, Log.v, Log.i, Log.w calls)
+# ==================== PERFORMANCE OPTIMIZATIONS ====================
+
+# Remove ALL logging in release builds for maximum performance
 -assumenosideeffects class android.util.Log {
     public static *** d(...);
     public static *** v(...);
     public static *** i(...);
     public static *** w(...);
+    public static *** e(...);
+    public static *** wtf(...);
+    public static *** println(...);
 }
+
+# Remove custom logging utilities
+-assumenosideeffects class com.kvive.keyboard.utils.LogUtil {
+    public static *** d(...);
+    public static *** v(...);
+    public static *** i(...);
+    public static *** w(...);
+    public static *** e(...);
+    public static *** logW(...);
+    public static *** logE(...);
+    public static *** logD(...);
+    public static *** logI(...);
+    public static *** logV(...);
+}
+
+# Optimize code generation
+-optimizations !code/simplification/arithmetic,!code/simplification/cast,!field/*,!class/merging/*
+-optimizationpasses 5
+-allowaccessmodification
+-dontpreverify
 
 # Note: MediaCodec system logs (D/MediaCodec, I/MediaCodec, etc.) are Android framework logs
 # that appear when SoundPool loads audio files. These cannot be suppressed from app code

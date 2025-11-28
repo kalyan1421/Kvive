@@ -378,7 +378,8 @@ class UnifiedSuggestionController(
         defaultType: SuggestionType = SuggestionType.TYPING
     ): UnifiedSuggestion {
         val derivedType = when {
-            isAutoCommit || source == SuggestionSource.CORRECTION -> SuggestionType.AUTOCORRECT
+            isAutoCommit -> SuggestionType.AUTOCORRECT
+            source == SuggestionSource.CORRECTION -> SuggestionType.TYPING
             source == SuggestionSource.LM_BIGRAM || source == SuggestionSource.LM_TRIGRAM || source == SuggestionSource.LM_QUADGRAM -> SuggestionType.NEXT_WORD
             else -> defaultType
         }

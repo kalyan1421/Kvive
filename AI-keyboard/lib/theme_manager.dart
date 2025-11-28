@@ -87,9 +87,9 @@ class KeyboardThemeData {
     // Text
     this.keyTextColor = const Color(0xFF212121),
     this.keyPressedTextColor = const Color(0xFF1976D2),
-    this.fontSize = 18.0,
+    this.fontSize = 24.0,
     this.fontFamily = 'Roboto',
-    this.isBold = false,
+    this.isBold = true,
     this.isItalic = false,
     
     // Accents
@@ -201,9 +201,9 @@ class KeyboardThemeData {
     keyDisabledColor: Color(json['keyDisabledColor'] ?? 0xFFEEEEEE),
     keyTextColor: Color(json['keyTextColor'] ?? 0xFF212121),
     keyPressedTextColor: Color(json['keyPressedTextColor'] ?? 0xFF1976D2),
-    fontSize: (json['fontSize'] ?? 18.0).toDouble(),
+    fontSize: (json['fontSize'] ?? 24.0).toDouble(),
     fontFamily: json['fontFamily'] ?? 'Roboto',
-    isBold: json['isBold'] ?? false,
+    isBold: json['isBold'] ?? true,
     isItalic: json['isItalic'] ?? false,
     accentColor: Color(json['accentColor'] ?? 0xFF2196F3),
     specialKeyColor: Color(json['specialKeyColor'] ?? 0xFFE0E0E0),
@@ -430,7 +430,7 @@ class FlutterThemeManager extends ChangeNotifier {
       accentColor: Color(0xFF0000FF),
       keyBorderWidth: 2.0,
       keyBorderColor: Color(0xFF000000),
-      fontSize: 20.0,
+      fontSize: 24.0,
       isBold: true,
     );
 

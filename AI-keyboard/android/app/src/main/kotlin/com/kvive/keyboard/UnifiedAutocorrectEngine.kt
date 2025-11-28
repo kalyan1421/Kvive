@@ -96,6 +96,10 @@ class UnifiedAutocorrectEngine(
     @Volatile
     private var recentKeypressTimes: MutableList<Long> = mutableListOf()
     
+    // ✅ V3 PACK Section 5: Word Learning & Auto-Promotion
+    // Track correction acceptance counts for auto-promotion (case-insensitive)
+    private val correctionAcceptCounts = ConcurrentHashMap<String, Int>()  // Key: "original→corrected" (lowercase)
+    
     // ========== NEW: Phase 1 Components ==========
     
     // ML-based swipe decoder for better gesture recognition
@@ -293,7 +297,9 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
      */
     fun getSuggestionsFor(prefix: String): List<String> {
         if (prefix.isBlank()) return emptyList()
-        Log.d(TAG, "🔍 Getting suggestions for prefix: '$prefix'")
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "🔍 Getting suggestions for prefix: '$prefix'")
+        }
         val suggestions = suggestForTyping(prefix, emptyList())
         return suggestions.map { it.text }
     }
@@ -304,7 +310,9 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
      */
     fun getNextWordPredictions(context: List<String>): List<String> {
         if (context.isEmpty()) return emptyList()
-        Log.d(TAG, "🔮 Getting next word predictions for: $context")
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "🔮 Getting next word predictions for: $context")
+        }
         val predictions = nextWord(context, 3)
         return predictions.map { it.text }
     }
@@ -418,16 +426,34 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
         if (symResults.isEmpty()) return emptyList()
         if (shouldBlockAutocorrect(originalInput, resources, contextWords)) return emptyList()
 
+        // ✅ GBOARD-LIKE BEHAVIOR: Filter suggestions based on input word status
+        val isInCorrections = resources.corrections.containsKey(lower)
+        val isInDictionary = hasWord(lower, resources)
+        
+        // Filter symResults based on Gboard rules
+        val filteredResults = symResults.filter { res ->
+            when {
+                // Rule 1: If word is in corrections list, allow all autocorrect suggestions
+                isInCorrections -> true
+                // Rule 2: If word is in dictionary, only allow corrections with editDistance > 1 (context-based)
+                isInDictionary -> res.distance > 1
+                // Rule 3: If word not in dictionary, allow all corrections
+                else -> true
+            }
+        }
+        
+        if (filteredResults.isEmpty()) return emptyList()
+
         val inputFreq = getWordFrequency(lower, resources)
-        val nextScore = symResults.getOrNull(1)?.score ?: Double.NEGATIVE_INFINITY
-        val top = symResults.first()
+        val nextScore = filteredResults.getOrNull(1)?.score ?: Double.NEGATIVE_INFINITY
+        val top = filteredResults.first()
 
         val autoCommitAllowed = top.distance == 1 &&
             top.frequency >= (if (inputFreq <= 0) 2 else inputFreq * 2) &&
             top.score >= nextScore + 0.15 &&
             !(originalInput.firstOrNull()?.isUpperCase() ?: false)
 
-        return symResults.take(3).mapIndexed { index, res ->
+        return filteredResults.take(3).mapIndexed { index, res ->
             val finalScore = computeFinalScore(
                 symspellScore = res.score,
                 frequency = res.frequency,
@@ -447,6 +473,17 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
         }
     }
 
+    /**
+     * ✅ V3 PACK Section 4: Gboard V3 Scoring Matrix
+     * 
+     * This scoring matrix produces the most human-like corrections by balancing:
+     * - SymSpell score (spelling similarity): 54%
+     * - Keyboard distance (typo proximity): 20%
+     * - Frequency (word commonness): 15%
+     * - Context (bigram/trigram): 11%
+     * 
+     * This ensures corrections feel natural and match user intent.
+     */
     private fun computeFinalScore(
         symspellScore: Double,
         frequency: Int,
@@ -465,10 +502,11 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
             ln(freq.toDouble() + 1)
         } ?: 0.0
 
-        return (symspellScore * 0.55) +
-            (freqScore * 0.30) +
-            (keyboardDistanceScore * 0.10) +
-            (bigramScore * 0.05)
+        // ✅ Gboard V3 Weights: 0.54 + 0.20 + 0.15 + 0.11 = 1.00
+        return (symspellScore * 0.54) +
+            (keyboardDistanceScore * 0.20) +
+            (freqScore * 0.15) +
+            (bigramScore * 0.11)
     }
     
     private fun hasSymbols(word: String): Boolean {
@@ -501,15 +539,27 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
         val lower = word.lowercase()
         if (word.length < 2) return true
         
-        // ✅ DEBUGGING: Find out WHICH check is blocking it
-        val isInData = hasWord(lower, resources)
+        // ✅ GBOARD V3: Improved blocking logic
+        // 1. If word is in corrections list → DON'T block (allow autocorrect even if real word)
         val isInCorrections = resources.corrections.containsKey(lower)
-        
-        if (isInData && !isInCorrections) {
-            Log.d(TAG, "🚫 Blocked: '$word' is in dictionary and NOT in corrections list")
-            return true 
+        if (isInCorrections) {
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "✅ Allowing autocorrect: '$word' is in corrections list")
+            }
+            return false  // Don't block
         }
         
+        // 2. If word is in dictionary → DON'T block here (will be handled by editDistance check in buildSymSpellSuggestions)
+        //    This allows context-based corrections for real words with editDistance > 1
+        val isInDictionary = hasWord(lower, resources)
+        if (isInDictionary) {
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "✅ Word '$word' is in dictionary - will check editDistance for context-based correction")
+            }
+            return false  // Don't block yet, let editDistance check decide
+        }
+        
+        // 3. Block special cases
         if (hasSymbols(word) || word.any { it.isDigit() }) return true
         // ... other checks ...
 
@@ -524,20 +574,28 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
         val resources = languageResources ?: return null
         val lower = input.lowercase()
         
-        Log.d(TAG, "🔍 Autocorrect called for: '$input'")
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "🔍 Autocorrect called for: '$input'")
+        }
 
         if (shouldBlockAutocorrect(input, resources, contextWords)) {
-            Log.d(TAG, "🚫 Autocorrect blocked for: '$input'")
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "🚫 Autocorrect blocked for: '$input'")
+            }
             return null
         }
         if (userDictionaryManager?.isBlacklisted(input, input) == true) {
-            Log.d(TAG, "🚫 Word blacklisted: '$input'")
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "🚫 Word blacklisted: '$input'")
+            }
             return null
         }
 
         val symResults = currentSymSpell()?.lookup(lower, Verbosity.TOP, maxEditDistance = 2) ?: emptyList()
         if (symResults.isEmpty()) {
-            Log.d(TAG, "🔍 No SymSpell results for: '$input'")
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "🔍 No SymSpell results for: '$input'")
+            }
             return null
         }
 
@@ -545,9 +603,14 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
         val top = symResults.first()
         val nextScore = symResults.getOrNull(1)?.score ?: Double.NEGATIVE_INFINITY
 
-        Log.d(TAG, "🔍 Best suggestion: '${top.term}' (distance=${top.distance}, freq=${top.frequency}, score=${top.score})")
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "🔍 Best suggestion: '${top.term}' (distance=${top.distance}, freq=${top.frequency}, score=${top.score})")
+        }
 
-        val frequencySatisfied = top.frequency >= (if (inputFreq <= 0) 2 else inputFreq * 2)
+        // ✅ PATCH 3: Improved frequency threshold (Gboard V3)
+        // Old: top.frequency >= inputFreq * 2 (too strict)
+        // New: top.frequency > inputFreq (more lenient, allows valid corrections)
+        val frequencySatisfied = top.frequency > inputFreq
         val autoCommitAllowed = top.distance == 1 &&
             frequencySatisfied &&
             top.score >= nextScore + 0.15 &&
@@ -571,8 +634,23 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
             confidence = top.score
         )
         
-        Log.d(TAG, "✅ Autocorrect suggestion: '$input' → '${suggestion.text}' (autoCommit=${suggestion.isAutoCommit})")
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "✅ Autocorrect suggestion: '$input' → '${suggestion.text}' (autoCommit=${suggestion.isAutoCommit})")
+        }
         return suggestion
+    }
+    
+    /**
+     * ✅ PATCH 4: Dynamic confidence threshold based on word length (Gboard V3)
+     * Shorter words require higher confidence to avoid false corrections
+     * Longer words can use lower confidence (more room for typos)
+     */
+    fun requiredConfidence(word: String): Double {
+        return when {
+            word.length <= 3 -> 0.85  // Short words: very high confidence (e.g., "the", "is", "to")
+            word.length <= 6 -> 0.75  // Medium words: high confidence (e.g., "hello", "world")
+            else -> 0.65              // Long words: moderate confidence (e.g., "keyboard", "autocorrect")
+        }
     }
     
     // ========== TIMING-BASED AUTOCORRECT METHODS (Gboard Rule 2) ==========
@@ -618,7 +696,7 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
             val avgInterval = totalInterval / (recentKeypressTimes.size - 1)
             
             val isFast = avgInterval < FAST_TYPING_THRESHOLD_MS
-            if (isFast) {
+            if (isFast && BuildConfig.DEBUG) {
                 Log.d(TAG, "⚡ Fast typing detected: avg interval=${avgInterval}ms < ${FAST_TYPING_THRESHOLD_MS}ms")
             }
             return isFast
@@ -633,7 +711,7 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
         val now = System.currentTimeMillis()
         val interval = now - lastKeypressTime
         val isFast = interval < SPACE_COMMIT_THRESHOLD_MS
-        if (isFast) {
+        if (isFast && BuildConfig.DEBUG) {
             Log.d(TAG, "⚡ Fast space: ${interval}ms < ${SPACE_COMMIT_THRESHOLD_MS}ms → skip autocorrect")
         }
         return isFast
@@ -646,7 +724,9 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
     fun autocorrectWithTiming(input: String, context: List<String>): Suggestion? {
         // If user is typing fast or pressed space quickly, skip autocorrect
         if (isTypingFast() || isSpacePressedFast()) {
-            Log.d(TAG, "⚡ Skipping autocorrect for '$input' due to fast typing")
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "⚡ Skipping autocorrect for '$input' due to fast typing")
+            }
             return null
         }
         return autocorrect(input, context)
@@ -1158,16 +1238,22 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
         if (path.points.size < 2) return emptyList()
         
         try {
-            Log.d(TAG, "[Swipe] Decoding path with ${path.points.size} points")
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "[Swipe] Decoding path with ${path.points.size} points")
+            }
             
             // 1) From points → most-likely key sequence (and alternates per point)
             val lattice: List<List<Char>> = candidatesForEachPoint(path.points, radiusPx = 0.15f)
-            val latticeSizes = lattice.map { it.size }
-            Log.d(TAG, "[Swipe] lattice sizes: $latticeSizes points=${path.points.size}")
+            if (BuildConfig.DEBUG) {
+                val latticeSizes = lattice.map { it.size }
+                Log.d(TAG, "[Swipe] lattice sizes: $latticeSizes points=${path.points.size}")
+            }
             
             // 2) Build fuzzy prefixes from the lattice (beam search over 8-15 steps)
             val fuzzyPrefixes: List<String> = beamDecode(lattice, beamWidth = 8, maxLen = 15)
-            Log.d(TAG, "[Swipe] beam top prefixes: ${fuzzyPrefixes.take(8).joinToString(", ")}")
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "[Swipe] beam top prefixes: ${fuzzyPrefixes.take(8).joinToString(", ")}")
+            }
             
             // 3) Query dictionary with those prefixes (NOT common_words), merge unique words
             val raw = mutableSetOf<String>()
@@ -1181,10 +1267,14 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
             // 4) If no candidates from fuzzy prefixes, try collapsed sequence directly
             val snappedSequence = snapToKeys(path.points)
             val collapsedSequence = collapseRepeats(snappedSequence)
-            Log.d(TAG, "[Swipe] snapped='$snappedSequence' collapsed='$collapsedSequence'")
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "[Swipe] snapped='$snappedSequence' collapsed='$collapsedSequence'")
+            }
             
             if (raw.isEmpty() && collapsedSequence.length >= 2) {
-                Log.d(TAG, "[Swipe] No fuzzy candidates, trying collapsed sequence: '$collapsedSequence'")
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "[Swipe] No fuzzy candidates, trying collapsed sequence: '$collapsedSequence'")
+                }
                 val directCandidates = getPrefixCandidates(collapsedSequence.lowercase(), 50, resources)
                     .map { it.first }
                 raw.addAll(directCandidates)
@@ -1192,8 +1282,10 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
             
             // 5) Still empty? Try proximity fallback with edit distance
             if (raw.isEmpty() && collapsedSequence.length >= 2) {
-                Log.d(TAG, "[Swipe] Trying proximity fallback for: '$collapsedSequence'")
-                Log.d(TAG, "[Swipe] Dictionary source = ${if (trieDictionary != null) "binary trie" else "in-memory map (${resources.words.size})"}")
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "[Swipe] Trying proximity fallback for: '$collapsedSequence'")
+                    Log.d(TAG, "[Swipe] Dictionary source = ${if (trieDictionary != null) "binary trie" else "in-memory map (${resources.words.size})"}")
+                }
                 
                 // Try a broader search first - longer sequences often have more errors
                 val editThreshold = if (collapsedSequence.length >= 6) 3 else 2
@@ -1684,11 +1776,16 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
     }
 
     /**
-     * Get autocorrect suggestions (legacy compatibility)
-     * Now properly combines:
-     * 1. True autocorrect (spelling corrections with confidence check)
-     * 2. Prefix suggestions (completions for partial words)
+     * ⚠️ LEGACY METHOD - DO NOT USE IN SUGGESTION FLOW
+     * This method mixes autocorrect with typing suggestions which causes:
+     * - Suggestion ranking confusion
+     * - UI flicker
+     * - Extra CPU usage during typing
+     * 
+     * Use suggestForTyping() for real-time suggestions during typing instead.
+     * Use autocorrect() directly for space-triggered correction only.
      */
+    @Deprecated("Use suggestForTyping() for typing or autocorrect() for space-triggered correction", ReplaceWith("suggestForTyping()"))
     fun getCorrections(word: String, language: String = "en", context: List<String> = emptyList()): List<Suggestion> {
         if (word.isBlank()) return emptyList()
         
@@ -1700,7 +1797,9 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
         if (correction != null) {
             // Put the correction first with CORRECTION source
             result.add(correction)
-            Log.d(TAG, "📝 getCorrections: Found autocorrect '${word}' → '${correction.text}'")
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "📝 getCorrections: Found autocorrect '${word}' → '${correction.text}'")
+            }
         }
         
         // STEP 2: Add prefix suggestions (word completions)
@@ -1715,7 +1814,9 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
         val suggestionWords = result.map { it.text }
         suggestionCallback?.invoke(suggestionWords)
         
-        Log.d(TAG, "📝 getCorrections('$word'): ${result.map { "${it.text}(${it.source})" }}")
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "📝 getCorrections('$word'): ${result.map { "${it.text}(${it.source})" }}")
+        }
         return result
     }
 
@@ -1817,8 +1918,10 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
     }
 
     /**
+     * ⚠️ LEGACY METHOD - DO NOT USE
      * Apply correction to input (legacy compatibility method)
      */
+    @Deprecated("Use autocorrect() directly for space-triggered correction", ReplaceWith("autocorrect()"))
     fun applyCorrection(word: String, language: String = "en"): String {
         val suggestions = getCorrections(word, language)
         return suggestions.firstOrNull()?.text ?: word
@@ -1858,9 +1961,11 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
     }
 
     /**
+     * ⚠️ LEGACY METHOD - DO NOT USE
      * Get suggestions optimized for swipe input (legacy method)
      * Use suggestForSwipe(SwipePath, context) for proper swipe decoding
      */
+    @Deprecated("Use suggestForSwipe(SwipePath, context) for proper swipe decoding", ReplaceWith("suggestForSwipe(swipePath, context)"))
     fun suggestForSwipe(input: String, language: String): List<String> {
         return try {
             getCorrections(input, language, emptyList()).take(3).map { it.text }
@@ -1871,8 +1976,10 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
     }
     
     /**
+     * ⚠️ LEGACY METHOD - DO NOT USE IN SUGGESTION FLOW
      * STEP 5: Simplified interface for quick suggestions
      */
+    @Deprecated("Use suggestForTyping() for typing suggestions", ReplaceWith("suggestForTyping()"))
     fun suggest(input: String, language: String): List<String> {
         return getCorrections(input, language).map { it.text }
     }
@@ -1998,6 +2105,12 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
      * Call this when user accepts an autocorrect suggestion
      * This helps the system learn user preferences
      */
+    /**
+     * ✅ V3 PACK Section 5: Enhanced word learning with auto-promotion
+     * 
+     * Tracks correction acceptance and automatically promotes corrections
+     * after 3 accepts (Gboard-style personalization)
+     */
     fun onCorrectionAccepted(originalWord: String, acceptedWord: String, language: String = "en") {
         try {
             // Learn the accepted word
@@ -2006,9 +2119,35 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
             // If it's a correction (not just a suggestion), learn the pattern
             if (!originalWord.equals(acceptedWord, ignoreCase = true)) {
                 learnFromUser(originalWord, acceptedWord, language)
+                
+                // ✅ V3: Track acceptance count for auto-promotion (case-insensitive)
+                val correctionKey = "${originalWord.lowercase()}→${acceptedWord.lowercase()}"
+                val currentCount = correctionAcceptCounts.getOrDefault(correctionKey, 0)
+                val newCount = currentCount + 1
+                correctionAcceptCounts[correctionKey] = newCount
+                
+                // ✅ V3: Auto-promote after 3 accepts (Gboard Rule)
+                // After 3 accepts, the correction becomes strongly weighted in the learning system
+                if (newCount >= 3) {
+                    // Learn with extra weight to boost this correction
+                    repeat(3) {
+                        userDictionaryManager?.learnWord(acceptedWord)
+                    }
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "🎖️ Auto-promoted correction: '$originalWord' → '$acceptedWord' (accepted $newCount times, boosted learning)")
+                    }
+                    // Reset counter after promotion
+                    correctionAcceptCounts.remove(correctionKey)
+                } else {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "✅ User accepted: '$originalWord' → '$acceptedWord' (count: $newCount/3)")
+                    }
+                }
             }
             
-            Log.d(TAG, "✅ User accepted: '$originalWord' → '$acceptedWord'")
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "✅ User accepted: '$originalWord' → '$acceptedWord'")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error processing accepted correction", e)
         }

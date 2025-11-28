@@ -626,7 +626,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
     private var longPressDelayMs: Long = 200L // Configurable long press delay
     // Tuned to mirror CleverType row density and gutters
     private var keySpacingVerticalDp = 1
-    private var keySpacingHorizontalDp = 1
+    private var keySpacingHorizontalDp = 0
     private var edgePaddingDp = 4
     private var verticalPaddingDp = 2
 
@@ -2423,7 +2423,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         private val largeIconKeyTypes = setOf("emoji", "mic", "symbols")
         
         // ✅ NEW: Key preview popup settings
-        private var keyPreviewEnabled = true // Enable by default
+        private var keyPreviewEnabled = false // ✅ DISABLED: Popup preview permanently disabled (user request)
         private var keyPreviewPopup: PopupWindow? = null
         private var keyPreviewText: TextView? = null
         
@@ -2543,7 +2543,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     
                     // Create rounded background drawable (like Gboard)
                     val backgroundDrawable = android.graphics.drawable.GradientDrawable().apply {
-                        cornerRadius = dpToPx(8).toFloat()
+                        cornerRadius = dpToPx(16).toFloat()
                         setColor(palette.keyBg)
                         setStroke(dpToPx(2), palette.keyBorderColor)
                     }
@@ -2564,7 +2564,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     // Update theme colors if popup already exists
                     keyPreviewText?.setTextColor(palette.keyText)
                     val backgroundDrawable = android.graphics.drawable.GradientDrawable().apply {
-                        cornerRadius = dpToPx(8).toFloat()
+                        cornerRadius = dpToPx(16).toFloat()
                         setColor(palette.keyBg)
                         setStroke(dpToPx(2), palette.keyBorderColor)
                     }
@@ -3065,7 +3065,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                             0f,
                             ColorUtils.setAlphaComponent(palette.specialAccent, (alpha * 0.9f).toInt().coerceAtLeast(0))
                         )
-                        val cornerRadius = dpToPx(8f)
+                        val cornerRadius = dpToPx(16f)
                         canvas.drawRoundRect(keyRect, cornerRadius, cornerRadius, tapGlowPaint)
                         tapGlowPaint.clearShadowLayer()
                     }
@@ -4671,7 +4671,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             accentOptionViews.forEachIndexed { index, view ->
                 val isSelected = index == newIndex
                 val background = android.graphics.drawable.GradientDrawable().apply {
-                    cornerRadius = dpToPx(8).toFloat()
+                    cornerRadius = dpToPx(16).toFloat()
                     setColor(if (isSelected) palette.specialAccent else palette.keyboardBg)
                 }
                 view.background = background
@@ -4868,7 +4868,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             
             // Create horizontal layout for accent options
             val popupBackground = android.graphics.drawable.GradientDrawable().apply {
-                cornerRadius = dpToPx(12).toFloat()
+                cornerRadius = dpToPx(18).toFloat()
                 setColor(palette.keyBg)
                 setStroke(dpToPx(1), palette.keyBorderColor)
             }
@@ -4900,7 +4900,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             // Add each option as a button
             allOptions.forEachIndexed { index, option ->
                 val optionBackground = android.graphics.drawable.GradientDrawable().apply {
-                    cornerRadius = dpToPx(8).toFloat()
+                    cornerRadius = dpToPx(16).toFloat()
                     setColor(palette.keyboardBg)
                 }
                 
