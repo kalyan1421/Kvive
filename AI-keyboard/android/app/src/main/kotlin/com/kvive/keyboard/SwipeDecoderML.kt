@@ -110,9 +110,11 @@ class SwipeDecoderML(
                     // Until dictionary frequencies are fixed, use heuristic
                     val wordPenalty = calculateWordPenalty(hyp.text)
                     
-                    val finalScore = hyp.score + freqScore + lengthBonus - wordPenalty
+                    val topWordBoost = getCommonWordBoost(hyp.text)
                     
-                    LogUtil.d(TAG, "📊 ${hyp.text} | path=${String.format("%.2f", hyp.score)} freq=$freq pen=${String.format("%.1f", wordPenalty)} final=${String.format("%.2f", finalScore)}")
+                    val finalScore = hyp.score + freqScore + lengthBonus - wordPenalty + topWordBoost
+                    
+                    LogUtil.d(TAG, "📊 ${hyp.text} | path=${String.format("%.2f", hyp.score)} freq=$freq pen=${String.format("%.1f", wordPenalty)} boost=${String.format("%.1f", topWordBoost)} final=${String.format("%.2f", finalScore)}")
                     
                     Pair(hyp.text, finalScore)
                 } else {
@@ -206,5 +208,19 @@ class SwipeDecoderML(
         }
         
         return penalty.coerceAtLeast(0.0)
+    }
+    
+    /**
+     * Boost for top-tier common words to help them survive beam search
+     * even with slightly sloppy finger traces (e.g., "you" vs "tui")
+     */
+    private fun getCommonWordBoost(word: String): Double {
+        // Top 20 most common English words get a raw score boost
+        val topTier = setOf(
+            "the", "be", "to", "of", "and", "a", "in", "that", "have", "i",
+            "it", "for", "not", "on", "with", "he", "as", "you", "do", "at"
+        )
+        
+        return if (topTier.contains(word.lowercase())) 1.5 else 0.0
     }
 }

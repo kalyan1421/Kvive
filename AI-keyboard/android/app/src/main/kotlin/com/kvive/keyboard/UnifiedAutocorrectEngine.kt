@@ -940,8 +940,9 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
     }
     
     /**
-     * Get swipe suggestions (V5 - Returns ML decoder results DIRECTLY)
-     * 🔴 CRITICAL: No legacy fallback, no re-ranking, no fusion
+     * Get swipe suggestions (V6 - ML decoder + Contextual Re-ranking)
+     * Takes ML results and re-ranks using N-gram context (bigrams/trigrams)
+     * This fixes "I love tui" -> "I love you" by using context
      */
     fun suggestForSwipe(path: SwipePath, context: List<String>): List<Suggestion> {
         val cacheKey = "swipe:${path.hashCode()}:${context.joinToString(",")}"
@@ -951,20 +952,34 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
             val decoder = getSwipeDecoder()
             val beamSearchCandidates = decoder?.decode(path) ?: emptyList()
             
+            // FIXED: Takes ML candidates and Re-ranks them using Context (Bigrams/Trigrams)
             if (beamSearchCandidates.isNotEmpty()) {
-                Log.d(TAG, "🚀 V5 Beam Search: ${beamSearchCandidates.take(5)}")
+                val resources = languageResources ?: return emptyList()
                 
-                // RETURN IMMEDIATELY - Do not fall through to legacy logic
-                val result = beamSearchCandidates.map { (word, score) -> 
-                    Suggestion(word, score, SuggestionSource.SWIPE, confidence = 1.0) 
-                }.take(10)
+                Log.d(TAG, "🚀 V6 Beam Search Raw: ${beamSearchCandidates.take(5)}")
                 
-                suggestionCache.put(cacheKey, result)
-                return result
+                // 1. Convert ML results into Metrics for Ranking
+                val metrics = beamSearchCandidates.map { (word, score) ->
+                    SwipeMetrics(
+                        word = word,
+                        pathScore = score, // This is the spatial score from SwipeDecoderML
+                        proximity = 0.0,   // Already handled inside ML score
+                        editDistance = 0   // Not needed for ML candidates
+                    )
+                }
+                
+                // 2. Apply Contextual Re-ranking (Uses "I love" -> "you")
+                // This applies the weights: wLM (Context), wFreq, etc.
+                val rankedSuggestions = rankSwipeCandidates(resources, context, metrics, limit = 10)
+                
+                Log.d(TAG, "✅ V6 Re-ranked Contextual: ${rankedSuggestions.take(3).map { "${it.text}(${String.format("%.2f", it.score)})" }}")
+                
+                suggestionCache.put(cacheKey, rankedSuggestions)
+                return rankedSuggestions
             }
             
             // No fallback - if decoder fails, return empty
-            Log.d(TAG, "⚠️ V5 Beam Search returned empty")
+            Log.d(TAG, "⚠️ V6 Beam Search returned empty")
             return emptyList()
             
         } catch (e: Exception) {
@@ -1571,10 +1586,17 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
     }
     
     /**
-     * Rank swipe candidates using proper metrics
+     * Rank swipe candidates using proper metrics + Contextual Re-ranking (V6)
+     * 
+     * Weight tuning rationale:
+     * - wLM = 2.5: HEAVILY increased to let context "I love..." strongly predict "you"
+     * - wFreq = 0.8: Increased to boost common words like "you" over gibberish
+     * - wPath = 1.2: Reduced to allow sloppier swiping if context matches
+     * - wProx/wEdit = 0.0: ML decoder already calculated spatial scores
+     * - wUser = 1.5: Boost user dictionary words
      */
     private fun rankSwipeCandidates(resources: LanguageResources, context: List<String>, metrics: List<SwipeMetrics>, limit: Int): List<Suggestion> {
-        val wFreq = 0.6; val wLM = 1.0; val wPath = 1.6; val wProx = 0.6; val wEdit = 0.8; val wUser = 1.0; val wCorr = 0.5; val wFeedback = 0.4
+        val wFreq = 0.8; val wLM = 2.5; val wPath = 1.2; val wProx = 0.0; val wEdit = 0.0; val wUser = 1.5; val wCorr = 0.5; val wFeedback = 0.4
         
         val contextWords = context.takeLast(2)
         val w_2 = contextWords.getOrNull(0)
