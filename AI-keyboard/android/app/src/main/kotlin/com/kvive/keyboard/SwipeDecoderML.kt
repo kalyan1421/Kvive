@@ -31,12 +31,24 @@ class SwipeDecoderML(
     companion object {
         private const val TAG = "SwipeDecoderML"
         
-        // Tuning Parameters (Gboard-like behavior)
-        private const val BEAM_WIDTH = 30       // Increased search width
-        private const val SIGMA = 0.18f         // Increased tolerance for corner cutting (was 0.12)
-        private const val WAIT_PENALTY = 2.5    // Higher penalty for "waiting" on a letter (was 0.5)
-        private const val DIRECTION_WEIGHT = 4.0 // Weight for vector alignment
-        private const val FREQ_WEIGHT = 2.5     // Weight for dictionary frequency
+        // 🔥 REBALANCED PARAMETERS (Physics Over Frequency)
+        private const val BEAM_WIDTH = 25        // Focused search width
+        
+        // STRICTER GEOMETRY: 0.10 means you must be within ~10% of key width
+        // This forces the engine to actually follow your finger
+        private const val SIGMA = 0.10f         // Tightened from 0.18 (was too forgiving)
+        
+        private const val WAIT_COST = -0.15     // Slight penalty for dwelling
+        private const val DIRECTION_WEIGHT = 1.5 // Reduced directional influence (was 4.0)
+        
+        // 🔥 CRITICAL FIX: MASSIVELY REDUCED FREQUENCY WEIGHT
+        // Was 2.5 (giving +13.8 bonus for freq=255) -> Now 0.5 (gives +2.75 bonus)
+        // Frequency should be a TIE-BREAKER, not the primary driver
+        // This prevents "pikkujoulut" from beating "the" just because it's in dictionary
+        private const val FREQ_WEIGHT = 0.5     // Reduced from 2.5
+        
+        // Path score threshold for garbage filtering
+        private const val MIN_PATH_SCORE = -10.0 // If score is worse, completely off-path
     }
 
     /**
@@ -88,9 +100,9 @@ class SwipeDecoderML(
                 for (hyp in beam) {
                     // --- STRATEGY 1: STAY (Dwell) ---
                     // User is still on the same key
-                    // Penalize to force movement, but allow for intentional long presses
+                    // Slight penalty to encourage movement, but allow for intentional long presses
                     nextBeam.add(hyp.copy(
-                        score = hyp.score - WAIT_PENALTY,
+                        score = hyp.score + WAIT_COST,  // WAIT_COST is negative (-0.15)
                         pathIndex = i
                     ))
 
@@ -162,16 +174,26 @@ class SwipeDecoderML(
             val results = beam.mapNotNull { hyp ->
                 val freq = dictionary.getFrequencyAtNode(hyp.nodeOffset)
                 if (freq > 0) {
-                    // V3: Massive Frequency Boost
-                    // log(freq) is roughly 0 to 5.5 (for freq 0-255)
-                    // Multiplying by 2.5 makes freq score ~0-14, comparable to path scores
+                    // 🔥 CRITICAL FIX: LOGARITHMIC DAMPENING
+                    // Instead of massive multiplier, use small boost as tie-breaker
+                    // freq (0-255) -> ln(freq+1) (0-5.5) -> scaled (0-2.75)
                     val freqScore = ln(freq.toDouble() + 1) * FREQ_WEIGHT
                     
-                    // Length Normalization: Average score per character to be fair to long words
-                    val lengthNorm = hyp.text.length.coerceAtLeast(1).toDouble()
-                    val finalScore = (hyp.score / lengthNorm) + freqScore
+                    // 🔥 REMOVED LENGTH NORMALIZATION
+                    // Length normalization was hiding bad paths by averaging out poor scores
+                    // Now: Path score directly reflects how well finger followed keys
+                    val finalScore = hyp.score + freqScore
                     
-                    Pair(hyp.text, finalScore)
+                    // 🔥 FILTRATION: PRUNE GARBAGE
+                    // If path score is too low (< -10.0), user didn't touch these keys
+                    // Throw it away even if it's a dictionary word
+                    // This kills "pikkujoulut" when you swipe "the"
+                    if (hyp.score < MIN_PATH_SCORE) {
+                        LogUtil.d(TAG, "❌ Filtered garbage: '${hyp.text}' (pathScore=${String.format("%.2f", hyp.score)} < $MIN_PATH_SCORE)")
+                        null
+                    } else {
+                        Pair(hyp.text, finalScore)
+                    }
                 } else {
                     null
                 }

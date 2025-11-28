@@ -157,6 +157,51 @@ class UnifiedAutocorrectEngine(
         return swipeDecoderML
     }
 
+    /**
+     * 🔥 Helper to filter garbage words (foreign words, junk combinations)
+     * Kills "pikkujoulut", "ioljobs", "rtti", "yuu", etc.
+     */
+    private fun isValidEnglishLike(word: String): Boolean {
+        // 1. Length check: English words are rarely > 15 letters
+        if (word.length > 15) {
+            Log.d(TAG, "❌ Rejected (too long): $word")
+            return false
+        }
+        
+        // 2. Vowel check: English words need vowels (a, e, i, o, u, y)
+        val vowels = setOf('a', 'e', 'i', 'o', 'u', 'y')
+        if (word.none { it in vowels }) {
+            Log.d(TAG, "❌ Rejected (no vowels): $word")
+            return false
+        }
+        
+        // 3. Triple repeat check: No English word has 3+ identical consecutive chars
+        // Kills "rtti", "aaaa", etc.
+        for (i in 0 until word.length - 2) {
+            if (word[i] == word[i + 1] && word[i] == word[i + 2]) {
+                Log.d(TAG, "❌ Rejected (triple repeat): $word")
+                return false
+            }
+        }
+        
+        // 4. Excessive consonant clusters check (optional)
+        // English rarely has 5+ consonants in a row
+        var consonantCount = 0
+        for (char in word) {
+            if (char !in vowels) {
+                consonantCount++
+                if (consonantCount >= 5) {
+                    Log.d(TAG, "❌ Rejected (consonant cluster): $word")
+                    return false
+                }
+            } else {
+                consonantCount = 0
+            }
+        }
+        
+        return true
+    }
+
     private fun loadMappedTrie(lang: String) {
         trieDictionary = try {
             MappedTrieDictionary(context, lang)
@@ -962,13 +1007,21 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
             
             // ✅ V3 LOGIC: Use confidence gaps for auto-commit
             val result = if (beamSearchCandidates.isNotEmpty()) {
-                Log.d(TAG, "🚀 V3 Beam Search decoder candidates: ${beamSearchCandidates.take(5).map { "${it.first}(${String.format("%.2f", it.second)})" }}")
+                Log.d(TAG, "🚀 V3 Beam Search decoder candidates (raw): ${beamSearchCandidates.take(5).map { "${it.first}(${String.format("%.2f", it.second)})" }}")
+                
+                // 🔥 NEW: FILTER GARBAGE WORDS
+                // Remove non-English-like words (foreign words, junk like "rtti", "yuu")
+                val filteredCandidates = beamSearchCandidates.filter { (word, _) ->
+                    isValidEnglishLike(word)
+                }
+                
+                Log.d(TAG, "✅ After English filter: ${filteredCandidates.take(5).map { "${it.first}(${String.format("%.2f", it.second)})" }}")
                 
                 // Calculate confidence gaps between candidates
-                beamSearchCandidates.mapIndexed { index, (word, score) ->
+                filteredCandidates.mapIndexed { index, (word, score) ->
                     // Calculate "Confidence Gap"
                     // If the top word score is > 2.0 higher than the second word, we are very sure
-                    val nextScore = beamSearchCandidates.getOrNull(index + 1)?.second ?: (score - 10.0)
+                    val nextScore = filteredCandidates.getOrNull(index + 1)?.second ?: (score - 10.0)
                     val confidenceGap = score - nextScore
                     val isConfident = confidenceGap > 2.0
                     
