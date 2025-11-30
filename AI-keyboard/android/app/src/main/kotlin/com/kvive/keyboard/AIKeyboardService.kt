@@ -140,144 +140,11 @@ class AIKeyboardService : InputMethodService(),
      * AI Panel Type enum
      */
     
-    /**
-     * Unified settings container for all keyboard configuration
-     */
-    private data class UnifiedSettings(
-        val vibrationEnabled: Boolean,
-        val soundEnabled: Boolean,
-        val keyPreviewEnabled: Boolean,
-        val showNumberRow: Boolean,
-        val swipeTypingEnabled: Boolean,
-        val aiSuggestionsEnabled: Boolean,
-        val currentLanguage: String,
-        val enabledLanguages: List<String>,
-        val autocorrectEnabled: Boolean,
-        val autoCapitalization: Boolean,
-        val autoFillSuggestion: Boolean,
-        val rememberCapsState: Boolean,
-        val doubleSpacePeriod: Boolean,
-        val popupEnabled: Boolean,
-        val soundType: String,
-        val effectType: String,
-        val soundVolume: Float,
-        val soundCustomUri: String?
-    )
-    
-    /**
-     * Internal SettingsManager - consolidates reads from multiple SharedPreferences sources
-     * Eliminates redundant I/O by reading once per load cycle
-     */
-    private class SettingsManager(private val context: Context) {
-        private val flutterPrefs by lazy {
-            context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        }
-        private val nativePrefs by lazy {
-            context.getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
-        }
-        
-        /**
-         * Load all settings from both preference sources in a single pass
-         * @return UnifiedSettings with all keyboard configuration
-         */
-        fun loadAll(): UnifiedSettings {
-            // ✅ CRITICAL: Sound and vibration ONLY from Flutter preferences - NO fallback to native
-            val sound = when {
-                flutterPrefs.contains("flutter.sound_enabled") ->
-                    flutterPrefs.getBoolean("flutter.sound_enabled", false)
-                flutterPrefs.contains("flutter.soundEnabled") ->
-                    flutterPrefs.getBoolean("flutter.soundEnabled", false)
-                else -> false // Default to false (sound off) if not set in Flutter
-            }
-            val vibration = when {
-                flutterPrefs.contains("flutter.vibration_enabled") ->
-                    flutterPrefs.getBoolean("flutter.vibration_enabled", false)
-                else -> false // ✅ Default to false (vibration OFF) if not set in Flutter
-            }
-            
-            // ✅ DISABLED: Popup preview permanently disabled (user request)
-            val keyPreview = false  // Always disabled
-            
-            val showNumberRow = nativePrefs.getBoolean("show_number_row", false)
-            val swipeTyping = nativePrefs.getBoolean("swipe_typing", true)
-            val aiSuggestions = nativePrefs.getBoolean("ai_suggestions", true)
-            val autocorrect = nativePrefs.getBoolean("auto_correct", true)  // ✅ Fixed: Match key used by MainActivity and isAutoCorrectEnabled()
-
-            val autoCapNative = nativePrefs.getBoolean("auto_capitalization", true)
-            val autoCap = when {
-                flutterPrefs.contains("flutter.auto_capitalization") ->
-                    flutterPrefs.getBoolean("flutter.auto_capitalization", autoCapNative)
-                flutterPrefs.contains("flutter.autoCapitalization") ->
-                    flutterPrefs.getBoolean("flutter.autoCapitalization", autoCapNative)
-                else -> autoCapNative
-            }
-
-            val autoFillNative = nativePrefs.getBoolean("auto_fill_suggestion", true)
-            val autoFill = when {
-                flutterPrefs.contains("flutter.auto_fill_suggestion") ->
-                    flutterPrefs.getBoolean("flutter.auto_fill_suggestion", autoFillNative)
-                flutterPrefs.contains("flutter.autoFillSuggestion") ->
-                    flutterPrefs.getBoolean("flutter.autoFillSuggestion", autoFillNative)
-                else -> autoFillNative
-            }
-
-            val rememberCapsNative = nativePrefs.getBoolean("remember_caps_state", false)
-            val rememberCaps = when {
-                flutterPrefs.contains("flutter.remember_caps_state") ->
-                    flutterPrefs.getBoolean("flutter.remember_caps_state", rememberCapsNative)
-                else -> rememberCapsNative
-            }
-
-            val doubleSpaceNative = nativePrefs.getBoolean("double_space_period", true)
-            val doubleSpace = when {
-                flutterPrefs.contains("flutter.double_space_period") ->
-                    flutterPrefs.getBoolean("flutter.double_space_period", doubleSpaceNative)
-                flutterPrefs.contains("flutter.doubleSpacePeriod") ->
-                    flutterPrefs.getBoolean("flutter.doubleSpacePeriod", doubleSpaceNative)
-                else -> doubleSpaceNative
-            }
-            val popup = nativePrefs.getBoolean("popup_enabled", false)
-            val soundType = flutterPrefs.getString("flutter.sound.type", "default") ?: "default"
-            val effectType = flutterPrefs.getString("flutter.effect.type", "none") ?: "none"
-            // ✅ CRITICAL: Read sound volume ONLY from Flutter preferences (0-100 scale, convert to 0-1) - NO fallback
-            val soundVolumePercent = flutterPrefs.getIntCompat("flutter.sound_volume", 50) // Default 50%
-            val soundVolume = (soundVolumePercent / 100.0f).coerceIn(0f, 1f)
-            val soundCustomUri = nativePrefs.getString("sound_custom_uri", null)
-            
-            // Read language settings from Flutter preferences
-            val currentLang = flutterPrefs.getString("flutter.current_language", "en") ?: "en"
-            val enabledLangsStr = flutterPrefs.getString("flutter.enabled_languages", "en") ?: "en"
-            val enabledLangs = try {
-                enabledLangsStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            } catch (_: Exception) {
-                listOf("en")
-            }
-            
-            return UnifiedSettings(
-                vibrationEnabled = vibration,
-                soundEnabled = sound,
-                keyPreviewEnabled = keyPreview,
-                showNumberRow = showNumberRow,
-                swipeTypingEnabled = swipeTyping,
-                aiSuggestionsEnabled = aiSuggestions,
-                currentLanguage = currentLang,
-                enabledLanguages = enabledLangs,
-                autocorrectEnabled = autocorrect,
-                autoCapitalization = autoCap,
-                autoFillSuggestion = autoFill,
-                rememberCapsState = rememberCaps,
-                doubleSpacePeriod = doubleSpace,
-                popupEnabled = popup,
-                soundType = soundType,
-                effectType = effectType,
-                soundVolume = soundVolume,
-                soundCustomUri = soundCustomUri
-            )
-        }
-    }
+    // ✅ CLEANUP: Removed local UnifiedSettings - now using AppConfig.UnifiedSettings
     
     // UI Components
     // ✅ CLEANUP: Removed legacy SwipeKeyboardView - UnifiedKeyboardView handles everything
+    // ✅ CLEANUP: Removed internal SettingsManager - now using centralized AppConfig
     private var keyboardView: KeyboardView? = null // Kept for backward compatibility interface
     private var unifiedKeyboardView: UnifiedKeyboardView? = null // ✅ NEW: Unified view for keyboard + panels
     private var unifiedViewReady = false // Track if view is fully initialized
@@ -501,7 +368,8 @@ class AIKeyboardService : InputMethodService(),
     }
     
     // AI and suggestion components
-    private val wordHistory = mutableListOf<String>()
+    // ✅ Thread-safe list to prevent ConcurrentModificationException crashes during AI suggestion updates
+    private val wordHistory = java.util.concurrent.CopyOnWriteArrayList<String>()
     private var currentWord = ""
     private var isAIReady = false
     
@@ -533,7 +401,7 @@ class AIKeyboardService : InputMethodService(),
     // Settings and Theme
     private lateinit var settings: SharedPreferences
     lateinit var themeManager: ThemeManager
-    private lateinit var settingsManager: SettingsManager
+    // ✅ CLEANUP: Removed settingsManager - now using centralized AppConfig
     private var lastLoadedSettingsHash: Int = 0
     
     // Method channels removed for compatibility - using SharedPreferences only for theme updates
@@ -672,7 +540,7 @@ class AIKeyboardService : InputMethodService(),
                                 onSettingsChanged()
                                 
                                 // UNIFIED SETTINGS LOAD - single read from all prefs
-                                applyLoadedSettings(settingsManager.loadAll(), logSuccess = false)
+                                applyLoadedSettings(AppConfig.loadAll(), logSuccess = false)
                                 
                                 // Apply CleverType config
                                 applyConfig()
@@ -851,7 +719,10 @@ class AIKeyboardService : InputMethodService(),
         // Initialize only critical components synchronously
         keyboardHeightManager = KeyboardHeightManager(this)
         settings = getSharedPreferences("ai_keyboard_settings", Context.MODE_PRIVATE)
-        settingsManager = SettingsManager(this)
+        
+        // Initialize centralized AppConfig (replaces SettingsManager)
+        AppConfig.init(this)
+        
         themeManager = ThemeManager(this)
         vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
         keyboardSettings = KeyboardSettings()
@@ -970,7 +841,7 @@ class AIKeyboardService : InputMethodService(),
         coroutineScope.launch(Dispatchers.IO) {
             com.kvive.keyboard.utils.StartupProfiler.startOperation("LoadAndApplySettings")
             try {
-                val loadedSettings = settingsManager.loadAll()
+                val loadedSettings = AppConfig.loadAll()
                 withContext(Dispatchers.Main) {
                     applyLoadedSettings(loadedSettings, logSuccess = true)
                     updateSuggestionControllerSettings()
@@ -2981,12 +2852,12 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Apply unified settings loaded from SettingsManager
+     * Apply unified settings loaded from AppConfig
      * Replaces loadSettings(), loadEnhancedSettings(), and loadKeyboardSettings()
-     * @param unified The consolidated settings object
+     * @param unified The consolidated settings object from AppConfig
      * @param logSuccess If true, logs "Settings loaded" message
      */
-    private fun applyLoadedSettings(unified: UnifiedSettings, logSuccess: Boolean = false) {
+    private fun applyLoadedSettings(unified: AppConfig.UnifiedSettings, logSuccess: Boolean = false) {
         try {
             // Apply core settings to service fields
             vibrationEnabled = unified.vibrationEnabled
@@ -4860,8 +4731,9 @@ class AIKeyboardService : InputMethodService(),
     }
     
     private fun getRecentContext(): List<String> {
-        val start = max(0, wordHistory.size - 3)
-        val context = wordHistory.subList(start, wordHistory.size)
+        // ✅ takeLast is thread-safe on CopyOnWriteArrayList and returns a new safe list copy
+        // This prevents ConcurrentModificationException when AI thread reads while main thread writes
+        val context = wordHistory.takeLast(3)
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "🔍 getRecentContext: wordHistory.size=${wordHistory.size}, context=$context")
         }
@@ -5097,17 +4969,7 @@ class AIKeyboardService : InputMethodService(),
         switchKeyboardMode(KeyboardMode.LETTERS)
     }
     
-    /**
-     * LEGACY FUNCTION - NO LONGER USED
-     * Old XML-based keyboard resource mapping
-     * Replaced by JSON-based LanguageLayoutAdapter system
-     */
-    @Deprecated("Use LanguageLayoutAdapter with JSON keymaps instead")
-    private fun getKeyboardResourceForLanguage(language: String, withNumbers: Boolean): Int {
-        // Return dummy value - this function is no longer called
-        // All layouts now loaded via UnifiedKeyboardView + JSON
-        return 0
-    }
+    // ✅ CLEANUP: Removed getKeyboardResourceForLanguage - replaced by JSON-based LanguageLayoutAdapter
     
     private fun shouldInsertDoubleSpacePeriod(ic: InputConnection, now: Long): Boolean {
         if (!doubleSpacePeriodEnabled) {
@@ -6929,7 +6791,7 @@ class AIKeyboardService : InputMethodService(),
                 val oldLanguageIndex = currentLanguageIndex
                 
                 // Reload settings using unified settings loader
-                applyLoadedSettings(settingsManager.loadAll())
+                applyLoadedSettings(AppConfig.loadAll())
                 
                 // Check if any settings changed
                 val settingsChanged = oldTheme != currentTheme ||

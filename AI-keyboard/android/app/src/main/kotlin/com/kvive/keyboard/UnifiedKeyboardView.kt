@@ -2325,14 +2325,14 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         return when {
             // ✅ Dynamic space bar width: Increase when utility key is hidden
             label == " " || label == "SPACE" || label.startsWith("space") -> {
-                if (hasUtilityKey) 2.5f else 3.5f  // Add 1f when utility key is removed
+                if (hasUtilityKey) 4.0f else 5.0f  // Increased space bar width
             }
-            label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 1.5f
+            label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 1.1f  // Smaller return button
             label == "?123" || label == "ABC" || label == "=<" || label == "123" -> 1.1f
             label == "🌐" || label == "GLOBE" -> 1f
-            label == "," || label == "." -> 1f
-            label == "⇧" || label == "SHIFT" -> 1.5f
-            label == "⌫" || label == "DELETE" -> 1.5f
+            label == "," || label == "." -> 0.8f  // Smaller comma/period buttons
+            label == "⇧" || label == "SHIFT" -> 1.1f  // Match 123/return size
+            label == "⌫" || label == "DELETE" -> 1.1f  // Match 123/return size
             else -> 1.0f
         }
     }
@@ -2355,11 +2355,14 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             "backspace" -> R.drawable.sym_keyboard_delete
             "enter" -> R.drawable.button_return  // ✅ Use Button_return.xml with smart behavior
             "globe" -> R.drawable.sym_keyboard_globe
+            "symbols" -> R.drawable.number_123  // ✅ Use XML icon for 123/symbols button
             else -> when (label.uppercase()) {
                 "SHIFT", "⇧" -> R.drawable.sym_keyboard_shift
                 "DELETE", "⌫" -> R.drawable.sym_keyboard_delete
                 "RETURN", "SYM_KEYBOARD_RETURN", "⏎" -> R.drawable.button_return  // ✅ Use Button_return.xml
                 "GLOBE", "🌐" -> R.drawable.sym_keyboard_globe
+                "?123", "123" -> R.drawable.number_123  // ✅ Use XML icon for 123 button
+                "ABC" -> R.drawable.abc  // ✅ Use XML icon for ABC button
                 else -> null
             }
         }
@@ -2627,6 +2630,10 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         private var isSwipeActive = false
         private var swipeEligibleForCurrentGesture = false
         private var swipeStartTime = 0L
+        
+        // ✅ Multi-touch support: Track active pointers and their associated keys
+        // This map stores pointerId -> DynamicKey to properly handle rollover typing
+        private val activePointers = mutableMapOf<Int, DynamicKey>()
         private val nonSwipeKeyTypes = setOf(
             "space",
             "enter",
@@ -4437,18 +4444,28 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 return handleAccentPopupTouch(event)
             }
             
-            return when (event.action) {
+            // ✅ MULTI-TOUCH FIX: Use actionMasked to detect secondary pointers
+            val action = event.actionMasked
+            val actionIndex = event.actionIndex
+            val pointerId = event.getPointerId(actionIndex)
+            
+            return when (action) {
                 MotionEvent.ACTION_DOWN -> {
-                    val key = findKeyAtPosition(event.x.toInt(), event.y.toInt())
+                    // Primary pointer down - handles first finger touch
+                    val x = event.getX(actionIndex).toInt()
+                    val y = event.getY(actionIndex).toInt()
+                    val key = findKeyAtPosition(x, y)
                     swipeEligibleForCurrentGesture = key?.let {
                         val normalizedType = it.keyType.lowercase()
                         !nonSwipeKeyTypes.contains(normalizedType)
                     } ?: false
 
                     if (key != null) {
+                        // ✅ Track this pointer -> key association for multi-touch
+                        activePointers[pointerId] = key
                         handleKeyDown(key)
                         if (parentView.swipeEnabled) {
-                            startSwipeTracking(event.x, event.y)
+                            startSwipeTracking(event.getX(actionIndex), event.getY(actionIndex))
                             if (!swipeEligibleForCurrentGesture) {
                                 cancelTrailFade()
                                 fingerPoints.clear()
@@ -4467,6 +4484,21 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                         false
                     }
                 }
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    // ✅ MULTI-TOUCH FIX: Secondary pointer down - handles additional fingers
+                    // This is critical for rollover typing where you press the next key
+                    // before lifting the previous finger
+                    val x = event.getX(actionIndex).toInt()
+                    val y = event.getY(actionIndex).toInt()
+                    val key = findKeyAtPosition(x, y)
+                    
+                    if (key != null) {
+                        // Track this pointer -> key association
+                        activePointers[pointerId] = key
+                        handleKeyDown(key)
+                    }
+                    true
+                }
                 MotionEvent.ACTION_MOVE -> {
                     // ✅ Hide key preview on move (like Gboard)
                     hideKeyPreview()
@@ -4474,11 +4506,11 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     if (!swipeEligibleForCurrentGesture || !parentView.swipeEnabled) {
                         return true
                     }
-                    // Continue swipe tracking
+                    // Continue swipe tracking (only for primary pointer)
                     if (!isSwipeActive && fingerPoints.isNotEmpty()) {
                         val st = fingerPoints[0]
-                        val dx = event.x - st[0]
-                        val dy = event.y - st[1]
+                        val dx = event.getX(0) - st[0]
+                        val dy = event.getY(0) - st[1]
                         val dist = sqrt(dx*dx + dy*dy)
                         if (dist > SWIPE_START_THRESHOLD) {
                             isSwipeActive = true
@@ -4489,16 +4521,19 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     }
                     
                     if (isSwipeActive) {
-                        fingerPoints.add(floatArrayOf(event.x, event.y))
+                        fingerPoints.add(floatArrayOf(event.getX(0), event.getY(0)))
                         invalidate() // Redraw for swipe trail
                     }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
+                    // Primary pointer up - last finger lifted
                     // ✅ NEW: Hide key preview popup
                     hideKeyPreview()
                     
-                    val key = findKeyAtPosition(event.x.toInt(), event.y.toInt())
+                    val x = event.getX(actionIndex).toInt()
+                    val y = event.getY(actionIndex).toInt()
+                    val key = findKeyAtPosition(x, y)
                     
                     // Stop delete repeat
                     stopDeleteRepeat()
@@ -4514,9 +4549,13 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     // ✅ FIX: If it wasn't a valid swipe (or wasn't a swipe at all), treat as TAP
                     // This prevents "dead zone" bug where fast taps are lost
                     if (!handledAsSwipe) {
-                        if (key != null) {
+                        // ✅ MULTI-TOUCH: Try to get key from tracked pointer first
+                        val trackedKey = activePointers[pointerId]
+                        val keyToUse = trackedKey ?: key
+                        
+                        if (keyToUse != null) {
                             // Handle tap - handleKeyUp will check if popup is showing and insert selected option
-                            handleKeyUp(key)
+                            handleKeyUp(keyToUse)
                             fingerPoints.clear()
                             invalidate()
                         } else if (accentPopup?.isShowing == true && activeAccentKey != null) {
@@ -4530,12 +4569,45 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                         }
                     }
 
+                    // ✅ Clean up this pointer from tracking
+                    activePointers.remove(pointerId)
+                    
                     // Only cancel long press if popup is not showing (popup handles its own cleanup)
                     if (accentPopup?.isShowing != true) {
                         cancelLongPressInternal()
                     }
                     isSwipeActive = false
                     swipeEligibleForCurrentGesture = false
+                    // ✅ Clear all pointers on final UP (all fingers lifted)
+                    activePointers.clear()
+                    true
+                }
+                MotionEvent.ACTION_POINTER_UP -> {
+                    // ✅ MULTI-TOUCH FIX: Secondary pointer up - one of multiple fingers lifted
+                    // This handles the key release for rollover typing
+                    val x = event.getX(actionIndex).toInt()
+                    val y = event.getY(actionIndex).toInt()
+                    
+                    // ✅ Cancel long press timer when any finger is lifted during multi-touch
+                    // This prevents accidental long press popups during fast rollover typing
+                    cancelLongPressTimer()
+                    
+                    // Get the key that was tracked for this pointer
+                    val trackedKey = activePointers[pointerId]
+                    val key = trackedKey ?: findKeyAtPosition(x, y)
+                    
+                    if (key != null) {
+                        // Stop delete repeat if this was the delete key
+                        if (key.keyType == "backspace") {
+                            stopDeleteRepeat()
+                        } else {
+                            // Handle key up for this specific pointer's key
+                            handleKeyUp(key)
+                        }
+                    }
+                    
+                    // Clean up this pointer from tracking
+                    activePointers.remove(pointerId)
                     true
                 }
                 MotionEvent.ACTION_CANCEL -> {
@@ -4547,6 +4619,8 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     isSwipeActive = false
                     fingerPoints.clear()
                     swipeEligibleForCurrentGesture = false
+                    // ✅ MULTI-TOUCH: Clear all tracked pointers on cancel
+                    activePointers.clear()
                     invalidate()
                     true
                 }
@@ -4790,6 +4864,10 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun handleKeyDown(key: DynamicKey) {
+            // ✅ MULTI-TOUCH FIX: Cancel any existing long press timer before starting a new one
+            // This prevents unwanted long press popups during fast/rollover typing
+            cancelLongPressTimer()
+            
             // ✅ NEW: Schedule key preview popup with delay (like Gboard)
             scheduleKeyPreview(key)
             
@@ -5054,14 +5132,14 @@ class UnifiedKeyboardView @JvmOverloads constructor(
 
         private fun getKeyWidthFactor(label: String, hasUtilityKey: Boolean = true): Float = when {
             label == " " || label == "SPACE" || label.startsWith("space") -> {
-                if (hasUtilityKey) 2.5f else 3.5f  // Add 1f when utility key is removed
+                if (hasUtilityKey) 4.0f else 5.0f  // Increased space bar width
             }
-            label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 1.5f
-            label == "⇧" || label == "SHIFT" -> 1.5f
-            label == "⌫" || label == "DELETE" -> 1.5f
+            label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 1.1f  // Smaller return button
+            label == "⇧" || label == "SHIFT" -> 1.1f  // Match 123/return size
+            label == "⌫" || label == "DELETE" -> 1.1f  // Match 123/return size
             label == "?123" || label == "ABC" || label == "=<" || label == "123" -> 1.1f
             label == "🌐" || label == "GLOBE" -> 1f
-            label == "," || label == "." -> 1f
+            label == "," || label == "." -> 0.8f  // Smaller comma/period buttons
             else -> 1.0f
         }
 
