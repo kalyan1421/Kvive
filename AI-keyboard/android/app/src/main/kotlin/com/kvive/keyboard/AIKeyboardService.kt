@@ -55,8 +55,8 @@ import com.kvive.keyboard.GestureSource
 import com.kvive.keyboard.VoiceInputManager
 
 class AIKeyboardService : InputMethodService(), 
-    KeyboardView.OnKeyboardActionListener, 
-    SwipeKeyboardView.SwipeListener {
+    KeyboardView.OnKeyboardActionListener {
+    // ✅ CLEANUP: Removed SwipeKeyboardView.SwipeListener - now using UnifiedKeyboardView.SwipeListener
     
     companion object {
         private const val TAG = "AIKeyboardService"
@@ -277,7 +277,8 @@ class AIKeyboardService : InputMethodService(),
     }
     
     // UI Components
-    private var keyboardView: SwipeKeyboardView? = null // Legacy keyboard view (still actively used)
+    // ✅ CLEANUP: Removed legacy SwipeKeyboardView - UnifiedKeyboardView handles everything
+    private var keyboardView: KeyboardView? = null // Kept for backward compatibility interface
     private var unifiedKeyboardView: UnifiedKeyboardView? = null // ✅ NEW: Unified view for keyboard + panels
     private var unifiedViewReady = false // Track if view is fully initialized
     private var pendingSuggestions: List<String>? = null // Buffer suggestions before view is ready
@@ -490,7 +491,7 @@ class AIKeyboardService : InputMethodService(),
 
     private fun refreshSwipeCapability(reason: String = "") {
         val canSwipe = isSwipeAllowedForCurrentState()
-        keyboardView?.setSwipeEnabled(canSwipe)
+        // ✅ CLEANUP: Only UnifiedKeyboardView handles swipe now
         unifiedKeyboardView?.setSwipeEnabled(canSwipe)
         if (!canSwipe) {
             lastCommittedSwipeWord = ""
@@ -730,15 +731,10 @@ class AIKeyboardService : InputMethodService(),
                                     Log.d(TAG, "⚡ Applying theme update immediately - V2: $isV2Theme")
                                     applyThemeImmediately() // Use the comprehensive theme application
                                     
-                                    // Additional refresh for V2 themes
+                                    // Additional refresh for V2 themes via UnifiedKeyboardView
                                     if (isV2Theme) {
                                         mainHandler.postDelayed({
-                                            keyboardView?.let { view ->
-                                                if (view is SwipeKeyboardView) {
-                                                    view.refreshTheme()
-                                                    view.invalidate()
-                                                }
-                                            }
+                                            unifiedKeyboardView?.invalidate()
                                             Log.d(TAG, "🔄 V2 theme additional refresh completed")
                                         }, 100)
                                     }
@@ -1704,44 +1700,7 @@ class AIKeyboardService : InputMethodService(),
                 }
             }
             
-        // Apply to keyboard view if available
-        keyboardView?.let { view ->
-            if (view is SwipeKeyboardView) {
-                // CRITICAL: Apply ALL settings to the view in proper order
-                view.setLabelScale(fontScale)
-                view.setBorderless(borderless)
-                view.setHintedNumberRow(hintedNumberRow)
-                view.setHintedSymbols(hintedSymbols)
-                view.setShowLanguageOnSpace(showLangOnSpace)
-                view.setCurrentLanguage(currentLanguage.uppercase())
-                view.setPreviewEnabled(popupPreview)
-                
-                // One-handed mode with Gboard-style behavior
-                view.setOneHandedMode(ohEnabled, ohSide, ohWidth)
-                
-                // Spacing and sizing
-                view.setKeySpacing(spaceVdp, spaceHdp)
-                view.scaleX = scaleX
-                view.scaleY = scaleY
-                
-                // Interaction settings
-                view.setLongPressDelay(longPressDelay)
-                view.setSoundEnabled(soundEnabled, soundIntensity)
-                view.setHapticIntensity(hapticIntensity)
-                
-                // CRITICAL: Force complete redraw and layout recalculation
-                view.invalidateAllKeys()
-                view.invalidate()
-                view.requestLayout()
-                
-                Log.d(TAG, "✓ SwipeKeyboardView settings applied: " +
-                    "fontScale=$fontScale, borderless=$borderless, showLang=$showLangOnSpace, " +
-                    "preview=$popupPreview, oneHanded=$ohEnabled@$ohSide(${(ohWidth * 100).toInt()}%), " +
-                    "spacing=$spaceVdp/$spaceHdp, scale=$scaleX×$scaleY, longPress=${longPressDelay}ms, " +
-                    "sound=$soundEnabled@$soundIntensity, haptic=$hapticIntensity")
-            }
-        }
-
+        // ✅ CLEANUP: Removed legacy SwipeKeyboardView settings block - UnifiedKeyboardView handles everything
         unifiedKeyboardView?.let { view ->
             view.setLabelScale(fontScale)
             view.setBorderless(borderless)
@@ -2146,11 +2105,7 @@ class AIKeyboardService : InputMethodService(),
 
     private fun applyTapEffectStyle() {
         val enabled = visualIntensity > 0
-        keyboardView?.let { view ->
-            if (view is SwipeKeyboardView) {
-                view.setTapEffectStyle(selectedTapEffectStyle, enabled)
-            }
-        }
+        // ✅ CLEANUP: Removed legacy SwipeKeyboardView tap effect - UnifiedKeyboardView handles it
         unifiedKeyboardView?.setTapEffectStyle(selectedTapEffectStyle, enabled)
     }
 
@@ -2721,10 +2676,8 @@ class AIKeyboardService : InputMethodService(),
      * NOTE: Always call this after setKeyboard() or layout changes to keep spacebar long-press working
      */
     private fun rebindKeyboardListener() {
-        keyboardView?.apply {
-            setOnKeyboardActionListener(this@AIKeyboardService)
-            setSwipeListener(this@AIKeyboardService)
-        }
+        // ✅ CLEANUP: Swipe listener now handled by UnifiedKeyboardView setup in onCreateInputView
+        keyboardView?.setOnKeyboardActionListener(this@AIKeyboardService)
         // Reset long-press state
         longPressHandler.removeCallbacks(longPressRunnable)
         currentLongPressKey = -1
@@ -3177,37 +3130,18 @@ class AIKeyboardService : InputMethodService(),
     }
     
     internal fun applyTheme() {
-        keyboardView?.let { view ->
-            // Apply theme using comprehensive ThemeManager
-            val theme = themeManager.getCurrentTheme()
-            val palette = themeManager.getCurrentPalette()
-            
-            // Set keyboard background
+        // ✅ CLEANUP: Theme now applied via UnifiedKeyboardView
+        val theme = themeManager.getCurrentTheme()
+        val palette = themeManager.getCurrentPalette()
+        
+        unifiedKeyboardView?.let { view ->
             val backgroundDrawable = themeManager.createKeyboardBackground()
             view.background = backgroundDrawable
-            
-            // The SwipeKeyboardView will request paint objects from ThemeManager
-            if (view is SwipeKeyboardView) {
-                view.setThemeManager(themeManager)
-                view.refreshTheme()
-                // Explicitly set background color to ensure consistency
-                if (palette.usesImageBackground) {
-                    view.setBackgroundColor(Color.TRANSPARENT)
-                } else {
-                    view.setBackgroundColor(palette.keyboardBg)
-                }
-                Log.d(TAG, "[AIKeyboard] Theme applied to keyboard and swipe view - Keyboard BG: ${Integer.toHexString(palette.keyboardBg)}")
-            }
-            
-            // Force redraw with new theme
-            view.invalidateAllKeys()
             view.invalidate()
             view.requestLayout()
-            
-            // Streamlined theme application log
-            Log.d(TAG, "Applied theme: ${theme.name} (${theme.id})")
+            Log.d(TAG, "Applied theme: ${theme.name} (${theme.id}) - BG: ${Integer.toHexString(palette.keyboardBg)}")
         } ?: run {
-            Log.w(TAG, "[AIKeyboard] keyboardView is null, cannot apply theme")
+            Log.w(TAG, "[AIKeyboard] UnifiedKeyboardView is null, cannot apply theme")
         }
     }
 
@@ -3220,34 +3154,18 @@ class AIKeyboardService : InputMethodService(),
             
             Log.d(TAG, "🎨 Applying comprehensive theme: ${theme.name}${if (enableAnimations) " (animated)" else ""}")
             
-            // 1. Update keyboard view with unified palette
-            keyboardView?.let { view ->
+            // ✅ CLEANUP: Theme applied via UnifiedKeyboardView (SwipeKeyboardView removed)
+            unifiedKeyboardView?.let { view ->
                 val backgroundDrawable = themeManager.createKeyboardBackground()
                 view.background = backgroundDrawable
+                view.invalidate()
+                view.requestLayout()
                 
-                if (view is SwipeKeyboardView) {
-                    view.setThemeManager(themeManager)
-                    view.refreshTheme()
-                    // Explicitly set background color to ensure consistency
-                    if (palette.usesImageBackground) {
-                        view.setBackgroundColor(Color.TRANSPARENT)
-                    } else {
-                        view.setBackgroundColor(palette.keyboardBg)
-                    }
-                    val fontScale = computeFontScale(palette)
-                    view.updateTextPaints(palette.keyFontFamily, fontScale)
-                    
-                    // Force complete repaint of all keys
-                    view.invalidateAllKeys()
+                // Additional force refresh to ensure all components update
+                mainHandler.postDelayed({
                     view.invalidate()
-                    view.requestLayout()
-                    
-                    // Additional force refresh to ensure all components update
-                    mainHandler.postDelayed({
-                        view.invalidate()
-                        Log.d(TAG, "🔄 Additional keyboard invalidation completed")
-                    }, 50)
-                }
+                    Log.d(TAG, "🔄 Additional keyboard invalidation completed")
+                }, 50)
                 
                 Log.d(TAG, "✅ Keyboard view themed with V2 system - Keyboard BG: ${Integer.toHexString(palette.keyboardBg)}")
             }
@@ -3317,7 +3235,8 @@ class AIKeyboardService : InputMethodService(),
             val applied = themeManager.applyThemeFromFlutter(themeMap, false)
             val requestedFontScale = (themeMap["fontScale"] as? Number)?.toFloat()
             if (requestedFontScale != null) {
-                (keyboardView as? SwipeKeyboardView)?.setLabelScale(requestedFontScale)
+                // ✅ CLEANUP: Apply font scale via UnifiedKeyboardView
+                unifiedKeyboardView?.setLabelScale(requestedFontScale)
             }
             if (applied) {
                 Log.d(TAG, "🎨 Theme applied from Flutter payload")
@@ -3391,7 +3310,8 @@ class AIKeyboardService : InputMethodService(),
     }
 
     fun previewTapEffect(type: String, opacity: Float) {
-        (keyboardView as? SwipeKeyboardView)?.applyTapEffect(type, opacity)
+        // ✅ CLEANUP: Preview tap effect via UnifiedKeyboardView - SwipeKeyboardView removed
+        // Note: UnifiedKeyboardView tap effects are controlled via setTapEffectStyle()
     }
 
     fun syncClipboardFromSystem(): Boolean {
@@ -5029,13 +4949,8 @@ class AIKeyboardService : InputMethodService(),
     }
     
     private fun updateShiftVisualState() {
-        keyboardView?.let { view ->
-            // Update the shift key visual state
-            view.isShifted = (shiftState != SHIFT_OFF)
-            
-            // Key labels are now handled by SwipeKeyboardView drawing override
-            view.invalidateAllKeys()
-        }
+        // ✅ CLEANUP: Shift visual state now handled by UnifiedKeyboardView
+        unifiedKeyboardView?.invalidate()
     }
     
     private fun showShiftFeedback(message: String) {
@@ -5132,27 +5047,18 @@ class AIKeyboardService : InputMethodService(),
     private suspend fun loadLanguageLayout(langCode: String) {
         val showNumberRow = getNumberRowEnabled()
         
-        // ✅ CRITICAL FIX: Use setKeyboardMode to ensure proper key code mapping
+        // ✅ CLEANUP: Layout loading handled via UnifiedLayoutController
         withContext(Dispatchers.Main) {
-            keyboardView?.let { view ->
-                if (view is SwipeKeyboardView) {
-                    view.currentLangCode = langCode
-                    view.setKeyboardMode(LanguageLayoutAdapter.KeyboardMode.LETTERS, languageLayoutAdapter, showNumberRow)
-                    view.setCurrentLanguage(languageManager.getLanguageDisplayName(langCode))
-                    view.refreshTheme()
-                    
-                    // 🔧 FIX: Rebind swipe listener after layout rebuild
-                    rebindKeyboardListener()
-                    
-                    // Force the parent container to remeasure and relayout
-                    keyboardContainer?.requestLayout()
-                    mainKeyboardLayout?.requestLayout()
-                    
-                    // Update the IME window to recalculate insets with new height
-                    updateInputViewShown()
-                    
-                    Log.d(TAG, "✅ Layout loaded for $langCode with numberRow=$showNumberRow")
-                }
+            if (::unifiedController.isInitialized) {
+                val targetMode = currentKeyboardMode.toLayoutMode()
+                unifiedController.buildAndRender(langCode, targetMode, showNumberRow)
+                
+                // Force the parent container to remeasure and relayout
+                keyboardContainer?.requestLayout()
+                mainKeyboardLayout?.requestLayout()
+                
+                // Update the IME window to recalculate insets with new height
+                updateInputViewShown()
             }
         }
 
@@ -5593,14 +5499,15 @@ class AIKeyboardService : InputMethodService(),
                 if (!unifiedViewReady || unifiedKeyboardView == null) {
                     // Queue suggestions until view is ready
                     pendingSuggestions = finalSuggestions
-                    pendingInputSnapshot = getCurrentInputText()
+                    // ⚡ PERFORMANCE FIX: Removed getCurrentInputText() IPC call from high-frequency path
+                    // The editor text snapshot is only needed when AI panel opens, not on every keystroke
                     Log.d(TAG, "🕐 Queuing suggestions until UnifiedKeyboardView is ready")
                     return@post
                 }
 
-                val inputSnapshot = getCurrentInputText()
-                unifiedKeyboardView?.updateEditorTextSnapshot(inputSnapshot)
-                pendingInputSnapshot = null
+                // ⚡ PERFORMANCE FIX: Removed getCurrentInputText() IPC call that was blocking the main thread
+                // IPC to get text from the target app (e.g., WhatsApp) on every keystroke caused severe lag.
+                // Editor text snapshot is now only fetched when AI panel opens, not during typing.
                 
                 // UnifiedKeyboardView will handle visibility, count, and defaults internally
                 unifiedKeyboardView?.updateSuggestions(finalSuggestions)
@@ -6375,13 +6282,13 @@ class AIKeyboardService : InputMethodService(),
     private var lastSwipeAutoInsertedSpace = true
     private var lastInputWasSwipe = false // ✅ Track if last input was a swipe for auto-spacing
     
-    // Implement SwipeListener interface methods with enhanced autocorrection
-    override fun onSwipeDetected(
+    // ✅ CLEANUP: Swipe methods called from UnifiedKeyboardView.SwipeListener (no longer interface override)
+    fun onSwipeDetected(
         swipedKeys: List<Int>, 
         swipePattern: String, 
         keySequence: List<Int>,
         swipePath: List<Pair<Float, Float>>,
-        isPreview: Boolean // ✅ NEW: Flag to distinguish preview vs final (default in interface)
+        isPreview: Boolean = false
     ) {
         // ✅ Safety check: Ensure unified engine is initialized
         if (!::autocorrectEngine.isInitialized) {
@@ -6506,7 +6413,7 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
-    override fun onSwipeStarted() {
+    fun onSwipeStarted() {
         if (!isSwipeAllowedForCurrentState()) return
         try {
             // Hide any popups that might interfere with swipe
@@ -6527,7 +6434,7 @@ class AIKeyboardService : InputMethodService(),
         }
     }
     
-    override fun onSwipeEnded() {
+    fun onSwipeEnded() {
         if (!isSwipeAllowedForCurrentState()) return
         try {
             // ✅ UNIFIED THEMING: Restore transparent background
@@ -6664,11 +6571,7 @@ class AIKeyboardService : InputMethodService(),
                     val enableNumberRow = showNumberRow && currentKeyboardMode == KeyboardMode.LETTERS
                     unifiedController.buildAndRender(currentLanguage, targetMode, enableNumberRow)
                 }
-                keyboardView?.let { legacyView ->
-                    if (legacyView is SwipeKeyboardView) {
-                        legacyView.setKeyboardMode(legacyView.currentKeyboardMode, languageLayoutAdapter, showNumberRow)
-                    }
-                }
+                // ✅ CLEANUP: Removed legacy SwipeKeyboardView mode setting
             } else {
                 languageLayoutAdapter.setShowUtilityKey(keyboardSettings.showUtilityKey)
             }
@@ -6681,34 +6584,7 @@ class AIKeyboardService : InputMethodService(),
             // Apply font size settings (multiplier as percentage)
             val fontMultiplier = (keyboardSettings.portraitFontSize / 100.0).toFloat()
             
-            // Apply keyboard dimensions and spacing
-            keyboardView?.let { view ->
-                // Apply one-handed mode if enabled
-                if (keyboardSettings.oneHandedMode) {
-                    val layoutParams = view.layoutParams
-                    if (layoutParams != null) {
-                        val screenWidth = resources.displayMetrics.widthPixels
-                        val newWidth = (screenWidth * (keyboardSettings.oneHandedModeWidth / 100.0)).toInt()
-                        layoutParams.width = newWidth
-                        view.layoutParams = layoutParams
-                    }
-                }
-                
-                // Apply spacing settings via keyboard padding
-                val horizontalPadding = (keyboardSettings.horizontalKeySpacing * resources.displayMetrics.density).toInt()
-                val verticalPadding = (keyboardSettings.verticalKeySpacing * resources.displayMetrics.density).toInt()
-                view.setPadding(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding)
-
-                if (view is SwipeKeyboardView) {
-                    val numberHintsEnabled = keyboardSettings.hintedNumberRow && !keyboardSettings.numberRow
-                    view.setHintedNumberRow(numberHintsEnabled)
-                    view.setHintedSymbols(keyboardSettings.hintedSymbols)
-                }
-
-                // Invalidate to redraw with new settings
-                view.invalidate()
-            }
-
+            // ✅ CLEANUP: Removed legacy keyboardView settings block - UnifiedKeyboardView handles everything
             unifiedKeyboardView?.let { view ->
                 val numberHintsEnabled = keyboardSettings.hintedNumberRow && !keyboardSettings.numberRow
                 view.setHintedNumberRow(numberHintsEnabled)
@@ -7265,7 +7141,7 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * ✅ FIX: Public method for long-press vibration (called from SwipeKeyboardView)
+     * ✅ Public method for long-press vibration (called from UnifiedKeyboardView)
      * Provides stronger haptic feedback for long-press actions
      */
     fun triggerLongPressVibration() {
@@ -7718,27 +7594,14 @@ class AIKeyboardService : InputMethodService(),
         val isUpperCase = newState != CapsShiftManager.STATE_NORMAL
         val isCapsLock = newState == CapsShiftManager.STATE_CAPS_LOCK
         
-        // Update legacy keyboard view (if used) with lightweight path to avoid rebuilds
-        keyboardView?.let { view ->
-            if (view is SwipeKeyboardView) {
-                if (view.applyShiftState(isUpperCase, isCapsLock)) {
-                    lastLegacyShiftVisualState = newState
-                }
-            } else if (newState != lastLegacyShiftVisualState) {
-                view.isShifted = isUpperCase
-                view.invalidateAllKeys()
-                lastLegacyShiftVisualState = newState
-            }
-        }
+        // ✅ CLEANUP: Removed legacy SwipeKeyboardView shift state handling
+        // Now handled entirely by UnifiedKeyboardView via KeyboardStateManager
         
         // ✅ Update UnifiedKeyboardView with new shift state
         KeyboardStateManager.updateShiftState(isUpperCase, isCapsLock)
 
-        val unifiedViewActive = ::unifiedController.isInitialized &&
-            unifiedKeyboardView?.isAttachedToWindow == true &&
-            keyboardView !is SwipeKeyboardView
-
-        if (unifiedViewActive) {
+        // Always use UnifiedKeyboardView for shift state
+        if (::unifiedController.isInitialized && unifiedKeyboardView?.isAttachedToWindow == true) {
             unifiedController.refreshKeyboardForShiftState(newState)
         }
     }
@@ -7822,7 +7685,7 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Start shift key long press detection (called from SwipeKeyboardView)
+     * Start shift key long press detection (called from UnifiedKeyboardView)
      */
     fun startShiftKeyLongPressDetection() {
         if (::capsShiftManager.isInitialized) {
@@ -7831,7 +7694,7 @@ class AIKeyboardService : InputMethodService(),
     }
     
     /**
-     * Cancel shift key long press detection (called from SwipeKeyboardView)
+     * Cancel shift key long press detection (called from UnifiedKeyboardView)
      */
     fun cancelShiftKeyLongPressDetection() {
         if (::capsShiftManager.isInitialized) {
@@ -8016,11 +7879,8 @@ class AIKeyboardService : InputMethodService(),
      * Show visual feedback for voice input state
      */
     fun showVoiceInputFeedback(isActive: Boolean) {
-        keyboardView?.let { view ->
-            // Update voice key appearance
-            view.setVoiceKeyActive(isActive)
-            
-        }
+        // ✅ CLEANUP: Voice key visual state now handled by UnifiedKeyboardView
+        unifiedKeyboardView?.invalidate()
     }
     
     /**
@@ -8030,10 +7890,7 @@ class AIKeyboardService : InputMethodService(),
         try {
             val wasVisible = isEmojiPanelVisible
             toggleEmojiPanel()
-            
-            // Update emoji key visual state
-            keyboardView?.setEmojiKeyActive(!wasVisible)
-            
+            // ✅ CLEANUP: Emoji key visual state handled by UnifiedKeyboardView
             Log.d(TAG, "Comprehensive emoji panel toggled: ${!wasVisible}")
         } catch (e: Exception) {
             Log.e(TAG, "Error toggling emoji panel", e)
@@ -8055,7 +7912,7 @@ class AIKeyboardService : InputMethodService(),
                 emojiPanel?.let { unifiedKeyboardView?.showPanel(it) }
             }
             
-            keyboardView?.setEmojiKeyActive(!wasVisible)
+            // ✅ CLEANUP: Emoji key visual state handled by UnifiedKeyboardView
             Log.d(TAG, "Emoji panel toggled: visible=${!wasVisible}")
         } catch (e: Exception) {
             Log.e(TAG, "Error toggling emoji panel", e)

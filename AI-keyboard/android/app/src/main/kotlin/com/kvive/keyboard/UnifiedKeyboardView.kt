@@ -531,6 +531,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
 
     /**
      * Dynamic key model
+     * ⚡ PERFORMANCE: Includes cached RectF to avoid object allocation during onDraw
      */
     data class DynamicKey(
         val x: Int,
@@ -541,7 +542,9 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         val code: Int,
         val longPressOptions: List<String>? = null,
         val keyType: String = "regular",
-        val hintLabel: String? = null
+        val hintLabel: String? = null,
+        // ⚡ Cached rect to eliminate GC stutter - calculated once during buildKeys()
+        val rect: RectF = RectF()
     )
 
     // UI containers
@@ -2675,7 +2678,9 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         init {
             setWillNotDraw(false) // Enable onDraw
             setBackgroundColor(Color.TRANSPARENT)
-            setLayerType(LAYER_TYPE_SOFTWARE, null)
+            // ⚡ PERFORMANCE FIX: Removed LAYER_TYPE_SOFTWARE to enable GPU hardware acceleration
+            // This allows Android to use the GPU for rendering instead of CPU, dramatically
+            // improving frame rates and reducing touch input latency
 
             if (width > 0 && height > 0) {
                 buildKeys()
@@ -2809,16 +2814,33 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                         keyX
                     }
 
+                    // ⚡ PERFORMANCE: Pre-calculate and cache the key rect to avoid GC during onDraw
+                    val keyX_int = resolvedX.roundToInt()
+                    val keyY_int = currentY.roundToInt()
+                    val keyWidth_int = keyWidth.roundToInt().coerceAtLeast(1)
+                    
+                    val basePadding = if (borderlessMode) 0f else dpToPx(0.5f)
+                    val horizontalInset = if (borderlessMode) 0f else dpToPx(0.5f)
+                    val verticalInset = if (borderlessMode) 0f else dpToPx(0.5f)
+                    
+                    val cachedRect = RectF(
+                        keyX_int.toFloat() + basePadding + horizontalInset,
+                        keyY_int.toFloat() + basePadding + verticalInset,
+                        (keyX_int + keyWidth_int).toFloat() - basePadding - horizontalInset,
+                        (keyY_int + rowHeight).toFloat() - basePadding - verticalInset
+                    )
+
                     val dynamicKey = DynamicKey(
-                        x = resolvedX.roundToInt(),
-                        y = currentY.roundToInt(),
-                        width = keyWidth.roundToInt().coerceAtLeast(1),
+                        x = keyX_int,
+                        y = keyY_int,
+                        width = keyWidth_int,
                         height = rowHeight,
                         label = keyModel.label,
                         code = keyModel.code,
                         longPressOptions = keyModel.longPress,
                         keyType = getKeyTypeFromCode(keyModel.code),
-                        hintLabel = keyModel.altLabel
+                        hintLabel = keyModel.altLabel,
+                        rect = cachedRect
                     )
                     dynamicKeys.add(dynamicKey)
                 }
@@ -2922,18 +2944,9 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             return 0.5f
         }
 
-        private fun getKeyRect(key: DynamicKey): RectF {
-            val basePadding = if (borderlessMode) 0f else dpToPx(0.5f)
-            val horizontalInset = if (borderlessMode) 0f else dpToPx(0.5f)
-            val verticalInset = if (borderlessMode) 0f else dpToPx(0.5f)
-
-            return RectF(
-                key.x.toFloat() + basePadding + horizontalInset,
-                key.y.toFloat() + basePadding + verticalInset,
-                (key.x + key.width).toFloat() - basePadding - horizontalInset,
-                (key.y + key.height).toFloat() - basePadding - verticalInset
-            )
-        }
+        // ⚡ PERFORMANCE FIX: Return the pre-cached RectF from DynamicKey to eliminate GC stutter
+        // The rect is calculated once during buildKeys() instead of on every draw call
+        private fun getKeyRect(key: DynamicKey): RectF = key.rect
 
         override fun onDraw(canvas: Canvas) {
             super.onDraw(canvas)

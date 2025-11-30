@@ -1,280 +1,173 @@
 package com.kvive.keyboard
 
 /**
- * Language configuration data classes for multilingual keyboard support
+ * Language configuration model for keyboard layouts
+ * Provides metadata about supported languages including:
+ * - Display name and native name
+ * - Flag emoji
+ * - Text direction (LTR/RTL)
+ * - Script type (Latin, Devanagari, Arabic, etc.)
+ * - Layout type (QWERTY, AZERTY, etc.)
  */
 data class LanguageConfig(
     val code: String,
-    val name: String,
+    val displayName: String,
     val nativeName: String,
-    val layoutType: LayoutType,
-    val script: Script,
-    val direction: TextDirection,
-    val hasAccents: Boolean,
-    val dictionaryFile: String,
-    val correctionRules: String,
     val flag: String,
-    val source: Source = Source.LOCAL,
-    val version: Int = 1
-)
-
-enum class LayoutType {
-    QWERTY, AZERTY, QWERTZ, DEVANAGARI, INSCRIPT, CUSTOM
-}
-
-enum class Script {
-    LATIN, DEVANAGARI, ARABIC, CYRILLIC, TELUGU, TAMIL, MALAYALAM
-}
-
-enum class TextDirection {
-    LTR, RTL
-}
-
-enum class Source {
-    LOCAL,   // Bundled with app
-    REMOTE   // Downloaded from Firebase
-}
-
-data class Correction(
-    val originalWord: String,
-    val correctedWord: String,
-    val confidence: Double,
-    val language: String
+    val direction: TextDirection = TextDirection.LTR,
+    val script: Script = Script.LATIN,
+    val layoutType: LayoutType = LayoutType.QWERTY,
+    val hasTransliteration: Boolean = false
 )
 
 /**
- * Predefined language configurations with hybrid local/remote support
+ * Text direction for keyboard layouts
+ */
+enum class TextDirection {
+    LTR,  // Left-to-Right (English, Spanish, etc.)
+    RTL   // Right-to-Left (Arabic, Hebrew, etc.)
+}
+
+/**
+ * Script types for different writing systems
+ */
+enum class Script {
+    LATIN,       // English, Spanish, French, etc.
+    CYRILLIC,    // Russian, Ukrainian, etc.
+    ARABIC,      // Arabic, Persian, Urdu
+    HEBREW,      // Hebrew
+    DEVANAGARI,  // Hindi, Marathi, Sanskrit
+    TELUGU,      // Telugu
+    TAMIL,       // Tamil
+    MALAYALAM,   // Malayalam
+    KANNADA,     // Kannada
+    BENGALI,     // Bengali
+    GUJARATI,    // Gujarati
+    PUNJABI,     // Punjabi (Gurmukhi)
+    ODIA,        // Odia
+    GREEK,       // Greek
+    THAI,        // Thai
+    KOREAN,      // Korean (Hangul)
+    JAPANESE,    // Japanese (Hiragana/Katakana)
+    CHINESE      // Chinese (Simplified/Traditional)
+}
+
+/**
+ * Keyboard layout types
+ */
+enum class LayoutType {
+    QWERTY,    // Standard QWERTY
+    QWERTZ,    // German layout
+    AZERTY,    // French layout
+    PHONETIC,  // Phonetic mapping for non-Latin scripts
+    NATIVE,    // Native script layout
+    INSCRIPT   // Indian government standard layout
+}
+
+/**
+ * Repository of supported language configurations
  */
 object LanguageConfigs {
     
-    // Base languages bundled with the app
-    private val LOCAL_LANGUAGES = mapOf(
-        "en" to LanguageConfig(
-            code = "en",
-            name = "English",
-            nativeName = "English",
-            layoutType = LayoutType.QWERTY,
-            script = Script.LATIN,
-            direction = TextDirection.LTR,
-            hasAccents = true,
-            dictionaryFile = "en_words.txt",
-            correctionRules = "en_corrections.txt",
-            flag = "🇺🇸"
-        ),
-        "es" to LanguageConfig(
-            code = "es",
-            name = "Spanish",
-            nativeName = "Español",
-            layoutType = LayoutType.QWERTY,
-            script = Script.LATIN,
-            direction = TextDirection.LTR,
-            hasAccents = true,
-            dictionaryFile = "es_words.txt",
-            correctionRules = "es_corrections.txt",
-            flag = "🇪🇸"
-        ),
-        "fr" to LanguageConfig(
-            code = "fr",
-            name = "French",
-            nativeName = "Français",
-            layoutType = LayoutType.AZERTY,
-            script = Script.LATIN,
-            direction = TextDirection.LTR,
-            hasAccents = true,
-            dictionaryFile = "fr_words.txt",
-            correctionRules = "fr_corrections.txt",
-            flag = "🇫🇷"
-        ),
-        "de" to LanguageConfig(
-            code = "de",
-            name = "German",
-            nativeName = "Deutsch",
-            layoutType = LayoutType.QWERTZ,
-            script = Script.LATIN,
-            direction = TextDirection.LTR,
-            hasAccents = true,
-            dictionaryFile = "de_words.txt",
-            correctionRules = "de_corrections.txt",
-            flag = "🇩🇪"
-        ),
-        "hi" to LanguageConfig(
-            code = "hi",
-            name = "Hindi",
-            nativeName = "हिन्दी",
-            layoutType = LayoutType.INSCRIPT,
-            script = Script.DEVANAGARI,
-            direction = TextDirection.LTR,
-            hasAccents = false,
-            dictionaryFile = "hi_words.txt",
-            correctionRules = "hi_corrections.txt",
-            flag = "🇮🇳",
-            source = Source.LOCAL
-        ),
-        "te" to LanguageConfig(
-            code = "te",
-            name = "Telugu",
-            nativeName = "తెలుగు",
-            layoutType = LayoutType.INSCRIPT,
-            script = Script.TELUGU,
-            direction = TextDirection.LTR,
-            hasAccents = false,
-            dictionaryFile = "te_words.txt",
-            correctionRules = "te_corrections.txt",
-            flag = "🇮🇳",
-            source = Source.LOCAL
-        ),
-        "ta" to LanguageConfig(
-            code = "ta",
-            name = "Tamil",
-            nativeName = "தமிழ்",
-            layoutType = LayoutType.INSCRIPT,
-            script = Script.TAMIL,
-            direction = TextDirection.LTR,
-            hasAccents = false,
-            dictionaryFile = "ta_words.txt",
-            correctionRules = "ta_corrections.txt",
-            flag = "🇮🇳",
-            source = Source.LOCAL
-        ),
-        "ml" to LanguageConfig(
-            code = "ml",
-            name = "Malayalam",
-            nativeName = "മലയാളം",
-            layoutType = LayoutType.INSCRIPT,
-            script = Script.MALAYALAM,
-            direction = TextDirection.LTR,
-            hasAccents = false,
-            dictionaryFile = "ml_words.txt",
-            correctionRules = "ml_corrections.txt",
-            flag = "🇮🇳",
-            source = Source.LOCAL
-        ),
-        "ar" to LanguageConfig(
-            code = "ar",
-            name = "Arabic",
-            nativeName = "العربية",
-            layoutType = LayoutType.CUSTOM,
-            script = Script.ARABIC,
-            direction = TextDirection.RTL,
-            hasAccents = false,
-            dictionaryFile = "ar_dict.db",
-            correctionRules = "ar_rules.json",
-            flag = "🇸🇦",
-            source = Source.LOCAL
-        ),
-        "ru" to LanguageConfig(
-            code = "ru",
-            name = "Russian",
-            nativeName = "Русский",
-            layoutType = LayoutType.CUSTOM,
-            script = Script.CYRILLIC,
-            direction = TextDirection.LTR,
-            hasAccents = false,
-            dictionaryFile = "ru_dict.db",
-            correctionRules = "ru_rules.json",
-            flag = "🇷🇺",
-            source = Source.LOCAL
-        ),
-        "pt" to LanguageConfig(
-            code = "pt",
-            name = "Portuguese",
-            nativeName = "Português",
-            layoutType = LayoutType.QWERTY,
-            script = Script.LATIN,
-            direction = TextDirection.LTR,
-            hasAccents = true,
-            dictionaryFile = "pt_dict.db",
-            correctionRules = "pt_rules.json",
-            flag = "🇵🇹",
-            source = Source.LOCAL
-        ),
-        "it" to LanguageConfig(
-            code = "it",
-            name = "Italian",
-            nativeName = "Italiano",
-            layoutType = LayoutType.QWERTY,
-            script = Script.LATIN,
-            direction = TextDirection.LTR,
-            hasAccents = true,
-            dictionaryFile = "it_dict.db",
-            correctionRules = "it_rules.json",
-            flag = "🇮🇹",
-            source = Source.LOCAL
-        ),
-        "ja" to LanguageConfig(
-            code = "ja",
-            name = "Japanese",
-            nativeName = "日本語",
-            layoutType = LayoutType.CUSTOM,
-            script = Script.LATIN, // For romaji input
-            direction = TextDirection.LTR,
-            hasAccents = false,
-            dictionaryFile = "ja_dict.db",
-            correctionRules = "ja_rules.json",
-            flag = "🇯🇵",
-            source = Source.LOCAL
-        )
+    /**
+     * Map of all supported languages with their configurations
+     */
+    val SUPPORTED_LANGUAGES: Map<String, LanguageConfig> = mapOf(
+        // Latin script languages
+        "en" to LanguageConfig("en", "English", "English", "🇺🇸"),
+        "es" to LanguageConfig("es", "Spanish", "Español", "🇪🇸"),
+        "fr" to LanguageConfig("fr", "French", "Français", "🇫🇷", layoutType = LayoutType.AZERTY),
+        "de" to LanguageConfig("de", "German", "Deutsch", "🇩🇪", layoutType = LayoutType.QWERTZ),
+        "it" to LanguageConfig("it", "Italian", "Italiano", "🇮🇹"),
+        "pt" to LanguageConfig("pt", "Portuguese", "Português", "🇵🇹"),
+        "nl" to LanguageConfig("nl", "Dutch", "Nederlands", "🇳🇱"),
+        "pl" to LanguageConfig("pl", "Polish", "Polski", "🇵🇱"),
+        "tr" to LanguageConfig("tr", "Turkish", "Türkçe", "🇹🇷"),
+        "vi" to LanguageConfig("vi", "Vietnamese", "Tiếng Việt", "🇻🇳"),
+        "id" to LanguageConfig("id", "Indonesian", "Bahasa Indonesia", "🇮🇩"),
+        "ms" to LanguageConfig("ms", "Malay", "Bahasa Melayu", "🇲🇾"),
+        "fil" to LanguageConfig("fil", "Filipino", "Filipino", "🇵🇭"),
+        "sw" to LanguageConfig("sw", "Swahili", "Kiswahili", "🇰🇪"),
+        
+        // Cyrillic script languages
+        "ru" to LanguageConfig("ru", "Russian", "Русский", "🇷🇺", script = Script.CYRILLIC),
+        "uk" to LanguageConfig("uk", "Ukrainian", "Українська", "🇺🇦", script = Script.CYRILLIC),
+        
+        // RTL languages
+        "ar" to LanguageConfig("ar", "Arabic", "العربية", "🇸🇦", TextDirection.RTL, Script.ARABIC),
+        "he" to LanguageConfig("he", "Hebrew", "עברית", "🇮🇱", TextDirection.RTL, Script.HEBREW),
+        "fa" to LanguageConfig("fa", "Persian", "فارسی", "🇮🇷", TextDirection.RTL, Script.ARABIC),
+        "ur" to LanguageConfig("ur", "Urdu", "اردو", "🇵🇰", TextDirection.RTL, Script.ARABIC),
+        
+        // Indian languages (Indic scripts)
+        "hi" to LanguageConfig("hi", "Hindi", "हिन्दी", "🇮🇳", script = Script.DEVANAGARI, hasTransliteration = true),
+        "te" to LanguageConfig("te", "Telugu", "తెలుగు", "🇮🇳", script = Script.TELUGU, hasTransliteration = true),
+        "ta" to LanguageConfig("ta", "Tamil", "தமிழ்", "🇮🇳", script = Script.TAMIL, hasTransliteration = true),
+        "ml" to LanguageConfig("ml", "Malayalam", "മലയാളം", "🇮🇳", script = Script.MALAYALAM, hasTransliteration = true),
+        "kn" to LanguageConfig("kn", "Kannada", "ಕನ್ನಡ", "🇮🇳", script = Script.KANNADA, hasTransliteration = true),
+        "bn" to LanguageConfig("bn", "Bengali", "বাংলা", "🇮🇳", script = Script.BENGALI, hasTransliteration = true),
+        "gu" to LanguageConfig("gu", "Gujarati", "ગુજરાતી", "🇮🇳", script = Script.GUJARATI, hasTransliteration = true),
+        "pa" to LanguageConfig("pa", "Punjabi", "ਪੰਜਾਬੀ", "🇮🇳", script = Script.PUNJABI, hasTransliteration = true),
+        "mr" to LanguageConfig("mr", "Marathi", "मराठी", "🇮🇳", script = Script.DEVANAGARI, hasTransliteration = true),
+        "or" to LanguageConfig("or", "Odia", "ଓଡ଼ିଆ", "🇮🇳", script = Script.ODIA, hasTransliteration = true),
+        
+        // East Asian languages
+        "zh" to LanguageConfig("zh", "Chinese", "中文", "🇨🇳", script = Script.CHINESE),
+        "ja" to LanguageConfig("ja", "Japanese", "日本語", "🇯🇵", script = Script.JAPANESE),
+        "ko" to LanguageConfig("ko", "Korean", "한국어", "🇰🇷", script = Script.KOREAN),
+        
+        // Other scripts
+        "th" to LanguageConfig("th", "Thai", "ไทย", "🇹🇭", script = Script.THAI),
+        "el" to LanguageConfig("el", "Greek", "Ελληνικά", "🇬🇷", script = Script.GREEK)
     )
     
-    // Mutable map that combines local and remote languages
-    val SUPPORTED_LANGUAGES: MutableMap<String, LanguageConfig> = LOCAL_LANGUAGES.toMutableMap()
-    
     /**
-     * Merge remote languages from Firebase into supported languages
-     * This allows dynamic addition of 40+ languages without app update
+     * Get configuration for a specific language
      */
-    @Synchronized
-    fun mergeRemoteLanguages(remote: Map<String, LanguageConfig>) {
-        SUPPORTED_LANGUAGES.putAll(remote)
-        android.util.Log.d("LanguageConfigs", "✅ Merged ${remote.size} remote languages. Total: ${SUPPORTED_LANGUAGES.size}")
+    fun getLanguageConfig(languageCode: String): LanguageConfig? {
+        return SUPPORTED_LANGUAGES[languageCode.lowercase()]
     }
     
     /**
-     * Get language config by code
-     */
-    fun getLanguageConfig(code: String): LanguageConfig? {
-        return SUPPORTED_LANGUAGES[code]
-    }
-    
-    /**
-     * Get all enabled language codes
+     * Get configurations for a set of enabled languages
      */
     fun getEnabledLanguages(enabledCodes: Set<String>): List<LanguageConfig> {
-        return enabledCodes.mapNotNull { SUPPORTED_LANGUAGES[it] }
+        return enabledCodes.mapNotNull { getLanguageConfig(it) }
     }
     
     /**
-     * Get languages by layout type
+     * Check if a language is supported
      */
-    fun getLanguagesByLayout(layoutType: LayoutType): List<LanguageConfig> {
-        return SUPPORTED_LANGUAGES.values.filter { it.layoutType == layoutType }
+    fun isSupported(languageCode: String): Boolean {
+        return SUPPORTED_LANGUAGES.containsKey(languageCode.lowercase())
     }
     
     /**
-     * Get languages by script
+     * Get all supported language codes
+     */
+    fun getAllSupportedCodes(): Set<String> {
+        return SUPPORTED_LANGUAGES.keys
+    }
+    
+    /**
+     * Get languages by script type
      */
     fun getLanguagesByScript(script: Script): List<LanguageConfig> {
         return SUPPORTED_LANGUAGES.values.filter { it.script == script }
     }
     
     /**
-     * Get local (bundled) languages
+     * Get RTL languages
      */
-    fun getLocalLanguages(): List<LanguageConfig> {
-        return SUPPORTED_LANGUAGES.values.filter { it.source == Source.LOCAL }
+    fun getRTLLanguages(): List<LanguageConfig> {
+        return SUPPORTED_LANGUAGES.values.filter { it.direction == TextDirection.RTL }
     }
     
     /**
-     * Get remote (downloadable) languages
+     * Get languages with transliteration support
      */
-    fun getRemoteLanguages(): List<LanguageConfig> {
-        return SUPPORTED_LANGUAGES.values.filter { it.source == Source.REMOTE }
-    }
-    
-    /**
-     * Check if language is bundled locally
-     */
-    fun isLocalLanguage(code: String): Boolean {
-        return LOCAL_LANGUAGES.containsKey(code)
+    fun getTransliterationLanguages(): List<LanguageConfig> {
+        return SUPPORTED_LANGUAGES.values.filter { it.hasTransliteration }
     }
 }
+
