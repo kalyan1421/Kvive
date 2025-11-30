@@ -50,6 +50,9 @@ class ThemeManager(context: Context) : BaseManager(context) {
         // Cache sizes
         private const val DRAWABLE_CACHE_SIZE = 50
         private const val IMAGE_CACHE_SIZE = 10
+        
+        // ⚡ MINIMUM FONT SIZE: Ensures keys are always readable
+        private const val MIN_KEY_FONT_SIZE_SP = 24.0f
     }
     
     override fun getPreferencesName() = "FlutterSharedPreferences"
@@ -932,7 +935,9 @@ class ThemeManager(context: Context) : BaseManager(context) {
         return Paint().apply {
             isAntiAlias = true
             textAlign = Paint.Align.CENTER
-            textSize = palette.keyFontSize * context.resources.displayMetrics.scaledDensity
+            // ⚡ Enforce minimum font size for readability
+            val fontSize = maxOf(palette.keyFontSize, MIN_KEY_FONT_SIZE_SP)
+            textSize = fontSize * context.resources.displayMetrics.scaledDensity
             color = palette.keyText
             typeface = createTypeface(palette.keyFontFamily, palette.keyFontBold, palette.keyFontItalic)
         }
@@ -952,7 +957,9 @@ class ThemeManager(context: Context) : BaseManager(context) {
             textAlign = Paint.Align.CENTER
             
             // Use custom font if specified, otherwise use global font
-            val fontSize = customization?.font?.sizeSp ?: palette.keyFontSize
+            // ⚡ Enforce minimum font size for readability
+            val baseFontSize = customization?.font?.sizeSp ?: palette.keyFontSize
+            val fontSize = maxOf(baseFontSize, MIN_KEY_FONT_SIZE_SP)
             textSize = fontSize * context.resources.displayMetrics.scaledDensity
             
             // Use custom text color if specified, otherwise use global color

@@ -2651,6 +2651,19 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         private var tapEffectStyle: UnifiedKeyboardView.TapEffectStyle = UnifiedKeyboardView.TapEffectStyle.NONE
         private var tapEffectsEnabled: Boolean = false
         private var tapEffectState: TapEffectState? = null
+        
+        // ⚡ PERFORMANCE: Cached Path objects to prevent GC churn during drawing
+        private val cachedStarPath = Path()
+        private val cachedSparklePath = Path()
+        private val cachedHeartPath = Path()
+        private val cachedLeafPath = Path()
+        private val cachedLightningPath = Path()
+        private val cachedGenericPath = Path()
+        
+        // ⚡ PERFORMANCE: Cached RectF objects for arc drawing
+        private val cachedArcRectLeft = RectF()
+        private val cachedArcRectRight = RectF()
+        private val cachedTempRect = RectF()
 
         private data class TapEffectState(
             val key: DynamicKey,
@@ -3207,7 +3220,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             opacity: Float
         ) {
             if (elements.isEmpty()) return
-            val path = Path()
+            // ⚡ PERFORMANCE: Reuse cached path instead of allocating new one
             elements.forEach { element ->
                 val baseColor = element.color ?: Color.parseColor("#4CAF50")
                 val baseAlpha = (200 * (1f - progress)).toInt().coerceIn(0, 255)
@@ -3220,12 +3233,12 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                 canvas.translate(cx, cy)
                 canvas.rotate(element.rotation)
                 val size = element.size * (1f + progress * 0.15f)
-                path.reset()
-                path.moveTo(0f, -size * 0.6f)
-                path.quadTo(size * 0.55f, -size * 0.3f, size * 0.2f, size * 0.6f)
-                path.quadTo(0f, size * 0.3f, -size * 0.2f, size * 0.6f)
-                path.quadTo(-size * 0.55f, -size * 0.3f, 0f, -size * 0.6f)
-                canvas.drawPath(path, overlayPaint)
+                cachedLeafPath.reset()
+                cachedLeafPath.moveTo(0f, -size * 0.6f)
+                cachedLeafPath.quadTo(size * 0.55f, -size * 0.3f, size * 0.2f, size * 0.6f)
+                cachedLeafPath.quadTo(0f, size * 0.3f, -size * 0.2f, size * 0.6f)
+                cachedLeafPath.quadTo(-size * 0.55f, -size * 0.3f, 0f, -size * 0.6f)
+                canvas.drawPath(cachedLeafPath, overlayPaint)
                 canvas.restore()
             }
         }
@@ -3272,7 +3285,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             opacity: Float
         ) {
             if (elements.isEmpty()) return
-            val path = Path()
+            // ⚡ PERFORMANCE: Reuse cached path instead of allocating new one
             overlayPaint.style = Paint.Style.STROKE
             overlayPaint.strokeCap = Paint.Cap.ROUND
             overlayPaint.strokeJoin = Paint.Join.ROUND
@@ -3290,18 +3303,18 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     element.size * 0.2f, element.size * 0.55f
                 )
 
-                path.reset()
-                path.moveTo(coords[0], coords[1])
+                cachedLightningPath.reset()
+                cachedLightningPath.moveTo(coords[0], coords[1])
                 var idx = 2
                 while (idx < coords.size) {
-                    path.lineTo(coords[idx], coords[idx + 1])
+                    cachedLightningPath.lineTo(coords[idx], coords[idx + 1])
                     idx += 2
                 }
 
                 canvas.save()
                 canvas.translate(keyRect.centerX() + element.dx, keyRect.centerY() + element.dy)
                 canvas.rotate(element.rotation)
-                canvas.drawPath(path, overlayPaint)
+                canvas.drawPath(cachedLightningPath, overlayPaint)
                 canvas.restore()
             }
             overlayPaint.style = Paint.Style.FILL
@@ -3974,8 +3987,12 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             return consumed
         }
 
+        /**
+         * ⚡ PERFORMANCE: Reuses cached path to prevent GC allocation during draw
+         */
         private fun createStarPath(radius: Float, sparkle: Boolean): Path {
-            val path = Path()
+            val path = if (sparkle) cachedSparklePath else cachedStarPath
+            path.reset()
             val points = if (sparkle) 4 else 5
             val innerRadius = radius * if (sparkle) 0.42f else 0.5f
             val totalPoints = points * 2
@@ -3993,16 +4010,19 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             return path
         }
 
+        /**
+         * ⚡ PERFORMANCE: Reuses cached path and RectF to prevent GC allocation during draw
+         */
         private fun createHeartPath(size: Float): Path {
             val radius = size / 2f
-            val left = RectF(-radius, -radius, 0f, 0f)
-            val right = RectF(0f, -radius, radius, 0f)
-            val path = Path()
-            path.addArc(left, 180f, 180f)
-            path.addArc(right, 180f, 180f)
-            path.lineTo(0f, radius * 1.6f)
-            path.close()
-            return path
+            cachedArcRectLeft.set(-radius, -radius, 0f, 0f)
+            cachedArcRectRight.set(0f, -radius, radius, 0f)
+            cachedHeartPath.reset()
+            cachedHeartPath.addArc(cachedArcRectLeft, 180f, 180f)
+            cachedHeartPath.addArc(cachedArcRectRight, 180f, 180f)
+            cachedHeartPath.lineTo(0f, radius * 1.6f)
+            cachedHeartPath.close()
+            return cachedHeartPath
         }
 
         private fun buildOverlayState(palette: ThemePaletteV2, key: DynamicKey): Map<String, List<OverlayElement>> {

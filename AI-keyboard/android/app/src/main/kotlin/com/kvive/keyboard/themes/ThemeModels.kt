@@ -283,14 +283,14 @@ data class KeyboardThemeV2(
         private fun parseFont(obj: JSONObject?): Keys.Font {
             if (obj == null) return Keys.Font(
                 family = "Roboto",
-                sizeSp = 24.0f,
+                sizeSp = 26.0f,  // Increased from 24.0f for better visibility
                 bold = true,
                 italic = false
             )
             
             return Keys.Font(
                 family = obj.optString("family", "Roboto"),
-                sizeSp = obj.optDouble("sizeSp", 24.0).toFloat(),
+                sizeSp = obj.optDouble("sizeSp", 26.0).toFloat(),  // Increased from 24.0
                 bold = obj.optBoolean("bold", true),
                 italic = obj.optBoolean("italic", false)
             )
@@ -503,7 +503,7 @@ data class KeyboardThemeV2(
                 ),
                 font = Keys.Font(
                     family = "Roboto",
-                    sizeSp = 24.0f,
+                    sizeSp = 26.0f,  // Increased from 24.0f for better visibility
                     bold = true,
                     italic = false
                 )

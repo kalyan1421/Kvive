@@ -4,6 +4,11 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import com.kvive.keyboard.managers.BaseManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -18,7 +23,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  * - Reduces memory usage with on-demand loading
  * - Backward compatible with old prefs-based storage
  * 
- * ⚡ PERFORMANCE: Uses debounced saving to prevent O(N) operations on every keystroke
+ * ⚡ PERFORMANCE: Uses debounced saving with IO thread to prevent typing lag
  */
 class DictionaryManager(context: Context) : BaseManager(context) {
     
@@ -31,12 +36,18 @@ class DictionaryManager(context: Context) : BaseManager(context) {
         private const val SAVE_DEBOUNCE_MS = 2000L // Save 2 seconds after last change
     }
     
-    // ⚡ PERFORMANCE: Handler for debounced saves
+    // ⚡ PERFORMANCE: Coroutine scope for async IO operations
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    
+    // ⚡ PERFORMANCE: Handler for debounced save scheduling (triggers IO coroutine)
     private val saveHandler = Handler(Looper.getMainLooper())
     private var pendingSave = false
     private val saveRunnable = Runnable {
         if (pendingSave) {
-            performSave()
+            // ⚡ CRITICAL: Run save on IO thread to prevent typing freeze
+            ioScope.launch {
+                performSave()
+            }
             pendingSave = false
         }
     }
@@ -775,6 +786,21 @@ class DictionaryManager(context: Context) : BaseManager(context) {
         } catch (e: Exception) {
             logE( "Error loading from Flutter prefs", e)
         }
+    }
+    
+    /**
+     * ⚡ PERFORMANCE: Cleanup coroutine scope when manager is destroyed
+     */
+    fun cleanup() {
+        saveHandler.removeCallbacks(saveRunnable)
+        if (pendingSave) {
+            // Force synchronous save before cleanup
+            performSave()
+            pendingSave = false
+        }
+        ioScope.cancel()
+        listeners.clear()
+        logW("DictionaryManager cleaned up")
     }
 }
 

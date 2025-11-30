@@ -5,8 +5,8 @@
     <!-- Key dimensions - ABSOLUTE MAXIMUM for tablets -->
     <dimen name="key_height">58dp</dimen>
     <dimen name="key_width">9.5%p</dimen>
-    <dimen name="key_text_size">20sp</dimen>
-    <dimen name="key_label_text_size">16sp</dimen>
+    <dimen name="key_text_size">22sp</dimen>
+    <dimen name="key_label_text_size">18sp</dimen>
     <dimen name="key_preview_height">96dp</dimen>
     <dimen name="key_preview_text_size">30sp</dimen>
     
