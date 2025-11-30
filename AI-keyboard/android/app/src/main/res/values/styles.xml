@@ -24,15 +24,13 @@
     </style>
     
     <!-- Keyboard View Style - XML drawables removed to allow programmatic theming -->
+    <!-- Note: UnifiedKeyboardView builds UI programmatically, this style is for legacy compatibility -->
     <style name="KeyboardView">
-        <!-- Removed: android:background and android:keyBackground to prevent XML override -->
         <item name="android:keyPreviewLayout">@layout/keyboard_key_preview</item>
         <item name="android:keyPreviewOffset">-12dp</item>
         <item name="android:keyPreviewHeight">@dimen/key_preview_height</item>
         <item name="android:keyTextSize">@dimen/key_text_size</item>
-        <!-- Removed: android:keyTextColor to allow theme-based text coloring -->
         <item name="android:labelTextSize">@dimen/key_label_text_size</item>
-        <item name="android:popupLayout">@layout/keyboard_popup_keyboard</item>
         <item name="android:verticalCorrection">-10dp</item>
         <item name="android:shadowColor">#BB000000</item>
         <item name="android:shadowRadius">2.75</item>

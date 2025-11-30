@@ -21,11 +21,21 @@ import java.io.FileNotFoundException
 import kotlin.math.*
 import android.view.Gravity
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import android.os.Handler
+import android.os.Looper
 
 /**
  * CleverType Theme Engine V2 - Single Source of Truth
  * Replaces old theme system with centralized JSON-based theming
  * All colors, drawables, and styling come from KeyboardThemeV2
+ * 
+ * ⚡ PERFORMANCE: Async background image loading prevents UI thread blocking
  */
 class ThemeManager(context: Context) : BaseManager(context) {
     
@@ -50,6 +60,13 @@ class ThemeManager(context: Context) : BaseManager(context) {
     // LRU Caches for performance
     private val drawableCache = LruCache<String, Drawable>(DRAWABLE_CACHE_SIZE)
     private val imageCache = LruCache<String, Drawable>(IMAGE_CACHE_SIZE)
+    
+    // ⚡ PERFORMANCE: Coroutine scope for async image loading
+    private val asyncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val mainHandler = Handler(Looper.getMainLooper())
+    
+    // Track pending async loads to avoid duplicate work
+    private val pendingImageLoads = mutableSetOf<String>()
     
     // Theme change listeners
     private val listeners = mutableListOf<ThemeChangeListener>()
@@ -627,6 +644,11 @@ class ThemeManager(context: Context) : BaseManager(context) {
         return ColorUtils.HSLToColor(hsl)
     }
     
+    /**
+     * ⚡ PERFORMANCE: Async image background loading
+     * Returns a placeholder immediately if image not cached, then loads asynchronously
+     * and notifies listeners when the real image is ready
+     */
     private fun buildImageBackground(theme: com.kvive.keyboard.themes.KeyboardThemeV2): Drawable {
         val imagePath = theme.background.imagePath
 
@@ -635,78 +657,111 @@ class ThemeManager(context: Context) : BaseManager(context) {
         }
         
         val cacheKey = "bg_image_layer_$imagePath"
-        return imageCache.get(cacheKey) ?: run {
-            try {
-                val originalBitmap = loadImageBitmap(imagePath)
-                Log.d(TAG, "✅ Loaded image bitmap: ${originalBitmap.width}x${originalBitmap.height}, config=${originalBitmap.config}")
-                
-                // Create a scaled bitmap that maintains aspect ratio and fills the view
-                // This prevents tiling/distortion issues with portrait images
-                val scaledBitmap = createScaledBitmapForKeyboard(originalBitmap)
-                
-                // Recycle original bitmap if we created a new scaled one
-                if (scaledBitmap !== originalBitmap) {
-                    originalBitmap.recycle()
-                }
-                
-                val brightness = theme.background.brightness.coerceIn(0.2f, 2.0f)
-                val bitmapDrawable = BitmapDrawable(context.resources, scaledBitmap).apply {
-                    alpha = (theme.background.imageOpacity * 255).toInt().coerceIn(0, 255)
-                    
-                    // High quality image rendering settings
-                    isFilterBitmap = true  // Enable filtering for smoother scaling
-                    setAntiAlias(true)     // Enable anti-aliasing for better quality
-                    
-                    // Fill the entire keyboard area
-                    gravity = Gravity.FILL
-                    
-                    // No tiling - image should fill completely
-                    tileModeX = Shader.TileMode.CLAMP
-                    tileModeY = Shader.TileMode.CLAMP
-                    if (brightness != 1.0f) {
-                        colorFilter = ColorMatrixColorFilter(
-                            ColorMatrix(
-                                floatArrayOf(
-                                    brightness, 0f, 0f, 0f, 0f,
-                                    0f, brightness, 0f, 0f, 0f,
-                                    0f, 0f, brightness, 0f, 0f,
-                                    0f, 0f, 0f, 1f, 0f
-                                )
-                            )
-                        )
+        
+        // ⚡ PERFORMANCE: Return cached image immediately if available
+        imageCache.get(cacheKey)?.let { return it }
+        
+        // Return placeholder immediately, load image asynchronously
+        val placeholderColor = theme.background.color ?: getCurrentPalette().keyboardBg
+        val placeholder = buildSolidDrawable(applyBrightnessMultiplier(placeholderColor, theme.background.brightness))
+        
+        // Start async load if not already pending
+        if (!pendingImageLoads.contains(cacheKey)) {
+            pendingImageLoads.add(cacheKey)
+            asyncScope.launch {
+                try {
+                    val drawable = loadImageBackgroundAsync(theme, cacheKey)
+                    mainHandler.post {
+                        pendingImageLoads.remove(cacheKey)
+                        if (drawable != null) {
+                            imageCache.put(cacheKey, drawable)
+                            Log.d(TAG, "⚡ Async image loaded, notifying listeners")
+                            notifyThemeChanged() // Trigger view refresh with real image
+                        }
+                    }
+                } catch (e: Exception) {
+                    mainHandler.post {
+                        pendingImageLoads.remove(cacheKey)
+                        Log.e(TAG, "❌ Async image load failed: $imagePath", e)
                     }
                 }
-
-                val baseColor = when {
-                    theme.background.color == null -> Color.TRANSPARENT
-                    theme.background.color == Color.BLACK && theme.background.overlayEffects.isEmpty() -> Color.TRANSPARENT
-                    else -> applyBrightnessMultiplier(theme.background.color ?: Color.TRANSPARENT, brightness)
-                }
-                val layers = mutableListOf<Drawable>().apply {
-                    if (baseColor != Color.TRANSPARENT) {
-                        add(ColorDrawable(baseColor))
-                    }
-                    add(bitmapDrawable)
-                    if (theme.background.overlayEffects.contains("darken")) {
-                        add(
-                            GradientDrawable(
-                                GradientDrawable.Orientation.TOP_BOTTOM,
-                                intArrayOf(
-                                    ColorUtils.setAlphaComponent(Color.BLACK, 0),
-                                    ColorUtils.setAlphaComponent(Color.BLACK, 120)
-                                )
-                            )
-                        )
-                    }
-                }
-
-                val layered = LayerDrawable(layers.toTypedArray())
-                imageCache.put(cacheKey, layered)
-                layered
-            } catch (e: Exception) {
-                android.util.Log.e("ThemeManager", "Failed to load background image: $imagePath", e)
-                buildSolidDrawable(theme.background.color ?: Color.TRANSPARENT)
             }
+        }
+        
+        return placeholder
+    }
+    
+    /**
+     * ⚡ PERFORMANCE: Load image background on IO thread
+     * Called asynchronously to avoid blocking UI thread
+     */
+    private suspend fun loadImageBackgroundAsync(
+        theme: com.kvive.keyboard.themes.KeyboardThemeV2,
+        cacheKey: String
+    ): Drawable? = withContext(Dispatchers.IO) {
+        val imagePath = theme.background.imagePath ?: return@withContext null
+        
+        try {
+            val originalBitmap = loadImageBitmap(imagePath)
+            Log.d(TAG, "✅ Loaded image bitmap async: ${originalBitmap.width}x${originalBitmap.height}")
+            
+            // Create a scaled bitmap that maintains aspect ratio and fills the view
+            val scaledBitmap = createScaledBitmapForKeyboard(originalBitmap)
+            
+            // Recycle original bitmap if we created a new scaled one
+            if (scaledBitmap !== originalBitmap) {
+                originalBitmap.recycle()
+            }
+            
+            val brightness = theme.background.brightness.coerceIn(0.2f, 2.0f)
+            val bitmapDrawable = BitmapDrawable(context.resources, scaledBitmap).apply {
+                alpha = (theme.background.imageOpacity * 255).toInt().coerceIn(0, 255)
+                isFilterBitmap = true
+                setAntiAlias(true)
+                gravity = Gravity.FILL
+                tileModeX = Shader.TileMode.CLAMP
+                tileModeY = Shader.TileMode.CLAMP
+                if (brightness != 1.0f) {
+                    colorFilter = ColorMatrixColorFilter(
+                        ColorMatrix(
+                            floatArrayOf(
+                                brightness, 0f, 0f, 0f, 0f,
+                                0f, brightness, 0f, 0f, 0f,
+                                0f, 0f, brightness, 0f, 0f,
+                                0f, 0f, 0f, 1f, 0f
+                            )
+                        )
+                    )
+                }
+            }
+
+            val baseColor = when {
+                theme.background.color == null -> Color.TRANSPARENT
+                theme.background.color == Color.BLACK && theme.background.overlayEffects.isEmpty() -> Color.TRANSPARENT
+                else -> applyBrightnessMultiplier(theme.background.color ?: Color.TRANSPARENT, brightness)
+            }
+            val layers = mutableListOf<Drawable>().apply {
+                if (baseColor != Color.TRANSPARENT) {
+                    add(ColorDrawable(baseColor))
+                }
+                add(bitmapDrawable)
+                if (theme.background.overlayEffects.contains("darken")) {
+                    add(
+                        GradientDrawable(
+                            GradientDrawable.Orientation.TOP_BOTTOM,
+                            intArrayOf(
+                                ColorUtils.setAlphaComponent(Color.BLACK, 0),
+                                ColorUtils.setAlphaComponent(Color.BLACK, 120)
+                            )
+                        )
+                    )
+                }
+            }
+
+            LayerDrawable(layers.toTypedArray())
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load background image async: $imagePath", e)
+            null
         }
     }
     
@@ -1163,10 +1218,12 @@ class ThemeManager(context: Context) : BaseManager(context) {
     }
     
     fun cleanup() {
-            prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
+        prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
         drawableCache.evictAll()
         imageCache.evictAll()
-            listeners.clear()
+        pendingImageLoads.clear()
+        asyncScope.cancel() // ⚡ PERFORMANCE: Cancel pending async loads
+        listeners.clear()
     }
     
     // ===== UNIFIED THEME COLOR ACCESSORS FOR PANELS =====

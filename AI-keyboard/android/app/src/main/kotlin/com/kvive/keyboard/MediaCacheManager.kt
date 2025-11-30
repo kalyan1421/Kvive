@@ -226,9 +226,9 @@ class MediaCacheManager(private val context: Context) {
                     EmojiRepository.getPopular(20, context).map { it.char }
                 }
                 
-                // Preload recent stickers
-                val stickerManager = StickerManager(context)
-                val recentStickers = stickerManager.getRecentStickers()
+                // Preload recent stickers via StickerServiceAdapter
+                val stickerAdapter = com.kvive.keyboard.stickers.StickerServiceAdapter(context)
+                val recentStickers = kotlinx.coroutines.runBlocking { stickerAdapter.getRecentStickers() }
                 
                 Log.d(TAG, "Preloaded ${frequentEmojis.size} emojis and ${recentStickers.size} stickers")
             } catch (e: Exception) {

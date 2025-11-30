@@ -72,11 +72,7 @@
             <meta-data android:name="android.view.im" android:resource="@xml/method" />
         </service>
         
-        <!-- Settings Activity -->
-        <activity android:name=".KeyboardSettingsActivity"
-            android:theme="@style/NormalTheme"
-            android:exported="false" />
-            
+        
 
         <!-- File provider for image cropping -->
         <provider
