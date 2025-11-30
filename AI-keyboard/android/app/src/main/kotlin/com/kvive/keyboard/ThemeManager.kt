@@ -123,8 +123,9 @@ class ThemeManager(context: Context) : BaseManager(context) {
                 changed = true
             }
         } else {
-            // Check for old theme format and migrate
-            changed = migrateOldTheme()
+            // No V2 theme found - load default
+            loadDefaultTheme()
+            changed = true
         }
 
         if (changed) {
@@ -132,93 +133,8 @@ class ThemeManager(context: Context) : BaseManager(context) {
         }
     }
     
-    /**
-     * Migrate old theme data to V2 format
-     */
-    private fun migrateOldTheme(): Boolean {
-        // Check for old theme keys
-        val oldThemeData = prefs.getString("flutter.current_theme_data", null)
-        
-        if (oldThemeData != null) {
-            try {
-                val oldTheme = JSONObject(oldThemeData)
-                val migratedTheme = createMigratedTheme(oldTheme)
-                
-                // Save as V2 and remove old keys
-                saveTheme(migratedTheme)
-                prefs.edit()
-                    .remove("flutter.current_theme_data")
-                    .remove("flutter.current_theme_id")
-                    .apply()
-                return true
-            } catch (e: Exception) {
-                loadDefaultTheme()
-                return true
-            }
-        } else {
-            loadDefaultTheme()
-            return true
-        }
-        return false
-    }
-    
-    private fun createMigratedTheme(oldTheme: JSONObject): KeyboardThemeV2 {
-        // Map old theme fields to new V2 structure with reasonable defaults
-        val theme = KeyboardThemeV2.createDefault().copy(
-            id = oldTheme.optString("id", "migrated_${System.currentTimeMillis()}"),
-            name = oldTheme.optString("name", "Migrated Theme"),
-            background = KeyboardThemeV2.Background(
-                type = "solid",
-                color = parseOldColor(oldTheme.optString("backgroundColor", "#1B1B1F")),
-                imagePath = null,
-                imageOpacity = 0.85f,
-                gradient = null,
-                overlayEffects = emptyList(),
-                adaptive = null,
-                brightness = 1.0f
-            ),
-            keys = KeyboardThemeV2.Keys(
-                preset = "bordered",
-                bg = parseOldColor(oldTheme.optString("keyBackgroundColor", "#3A3A3F")),
-                text = parseOldColor(oldTheme.optString("keyTextColor", "#FFFFFF")),
-                pressed = parseOldColor(oldTheme.optString("keyPressedColor", "#505056")),
-                rippleAlpha = 0.12f,
-                border = KeyboardThemeV2.Keys.Border(
-                    enabled = true,
-                    color = parseOldColor(oldTheme.optString("keyBorderColor", "#636366")),
-                    widthDp = 1.0f
-                ),
-                radius = oldTheme.optDouble("keyCornerRadius", 10.0).toFloat(),
-                shadow = KeyboardThemeV2.Keys.Shadow(
-                    enabled = oldTheme.optBoolean("showKeyShadows", true),
-                    elevationDp = oldTheme.optDouble("shadowDepth", 2.0).toFloat(),
-                    glow = false
-                ),
-                font = KeyboardThemeV2.Keys.Font(
-                    family = oldTheme.optString("fontFamily", "Roboto"),
-                    sizeSp = oldTheme.optDouble("fontSize", 18.0).toFloat(),
-                    bold = oldTheme.optBoolean("isBold", false),
-                    italic = oldTheme.optBoolean("isItalic", false)
-                )
-            ),
-            specialKeys = KeyboardThemeV2.SpecialKeys(
-                accent = parseOldColor(oldTheme.optString("accentColor", "#FF9F1A")),
-                useAccentForEnter = true,
-                applyTo = listOf("enter", "globe", "emoji", "mic", "symbols", "backspace"),
-                spaceLabelColor = parseOldColor(oldTheme.optString("keyTextColor", "#FFFFFF"))
-            )
-        )
-        
-        return theme
-    }
-    
-    private fun parseOldColor(colorStr: String): Int {
-        return try {
-            Color.parseColor(colorStr)
-        } catch (e: Exception) {
-            Color.TRANSPARENT
-        }
-    }
+    // ✅ CLEANUP: migrateOldTheme() and createMigratedTheme() removed
+    // Migration has been completed - new installs use V2 format directly
     
     private fun loadDefaultTheme() {
         val defaultTheme = KeyboardThemeV2.createDefault()

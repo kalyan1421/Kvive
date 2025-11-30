@@ -106,11 +106,6 @@ class UnifiedAutocorrectEngine(
     // Note: SwipeDecoderML is now created on-demand in getSwipeDecoder() to ensure dictionary is available
     private var swipeDecoderML: SwipeDecoderML? = null
     
-    // Next-word predictor for context-aware suggestions (public for learning integration)
-    val nextWordPredictor: NextWordPredictor by lazy {
-        NextWordPredictor(context)
-    }
-    
     // Tunable scoring weights manager
     private val scoringWeights: ScoringWeightsManager by lazy {
         ScoringWeightsManager(context)
@@ -877,22 +872,6 @@ private fun mergeSymSpellWords(resources: LanguageResources): Map<String, Int> {
                     }
                 }
             }
-            
-            // ========== Phase 1: Async NextWordPredictor Integration ==========
-            // 🔥 PERFORMANCE FIX: Disabled ML predictor during typing - too expensive
-            // This should only run after SPACE key, not during word typing
-            // Launch async prediction that can update UI when ready
-            /* DISABLED FOR PERFORMANCE
-            CoroutineScope(Dispatchers.Default).launch {
-                try {
-                    val mlPredictions = nextWordPredictor.predictNext(contextWords, k)
-                    // These predictions can be used to update the UI asynchronously
-                    // or merged with existing suggestions in Phase 2
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error getting ML predictions", e)
-                }
-            }
-            */
             
             val result = suggestions
                 .sortedByDescending { it.score }

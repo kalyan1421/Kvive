@@ -1,6 +1,8 @@
 package com.kvive.keyboard
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import com.kvive.keyboard.managers.BaseManager
 import org.json.JSONArray
 import org.json.JSONObject
@@ -15,6 +17,8 @@ import java.util.concurrent.CopyOnWriteArrayList
  * - Stores dictionaries per language in /files/dictionaries/{lang}.json
  * - Reduces memory usage with on-demand loading
  * - Backward compatible with old prefs-based storage
+ * 
+ * ⚡ PERFORMANCE: Uses debounced saving to prevent O(N) operations on every keystroke
  */
 class DictionaryManager(context: Context) : BaseManager(context) {
     
@@ -22,6 +26,19 @@ class DictionaryManager(context: Context) : BaseManager(context) {
         private const val KEY_ENTRIES = "dictionary_entries"
         private const val KEY_ENABLED = "dictionary_enabled"
         private const val KEY_CURRENT_LANGUAGE = "current_language"
+        
+        // ⚡ PERFORMANCE: Debounce save operations to reduce I/O during typing
+        private const val SAVE_DEBOUNCE_MS = 2000L // Save 2 seconds after last change
+    }
+    
+    // ⚡ PERFORMANCE: Handler for debounced saves
+    private val saveHandler = Handler(Looper.getMainLooper())
+    private var pendingSave = false
+    private val saveRunnable = Runnable {
+        if (pendingSave) {
+            performSave()
+            pendingSave = false
+        }
     }
     
     override fun getPreferencesName() = "dictionary_manager"
@@ -182,6 +199,9 @@ class DictionaryManager(context: Context) : BaseManager(context) {
             logW("Already using language: $newLang")
             return
         }
+        
+        // ⚡ PERFORMANCE: Force save before switching languages
+        forceSaveNow()
         
         // Save current language dictionary
         saveLanguage(currentLanguage)
@@ -550,7 +570,20 @@ class DictionaryManager(context: Context) : BaseManager(context) {
         logW("Rebuilt shortcut map with ${shortcutMap.size} entries")
     }
     
+    /**
+     * ⚡ PERFORMANCE: Schedule a debounced save
+     * This prevents O(N) save operations on every keystroke during typing
+     */
     private fun saveEntriesToPrefs() {
+        pendingSave = true
+        saveHandler.removeCallbacks(saveRunnable)
+        saveHandler.postDelayed(saveRunnable, SAVE_DEBOUNCE_MS)
+    }
+    
+    /**
+     * Actually perform the save operation (called after debounce delay)
+     */
+    private fun performSave() {
         try {
             // Save to language-specific file (new format)
             saveLanguage(currentLanguage)
@@ -560,8 +593,21 @@ class DictionaryManager(context: Context) : BaseManager(context) {
             
             // Sync to cloud if UserDictionaryManager is available
             requestCloudSync()
+            
+            logW("⚡ Debounced save completed")
         } catch (e: Exception) {
-            logE( "Error saving dictionary entries to preferences", e)
+            logE("Error saving dictionary entries to preferences", e)
+        }
+    }
+    
+    /**
+     * Force immediate save (call on app close or language switch)
+     */
+    fun forceSaveNow() {
+        saveHandler.removeCallbacks(saveRunnable)
+        if (pendingSave) {
+            performSave()
+            pendingSave = false
         }
     }
     

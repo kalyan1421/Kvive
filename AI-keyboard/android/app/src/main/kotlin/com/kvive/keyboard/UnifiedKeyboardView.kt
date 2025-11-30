@@ -3095,6 +3095,10 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             drawOverlayEffects(canvas, keyRect, palette, state, progress)
         }
 
+        /**
+         * ⚡ PERFORMANCE: Draw overlay effects (stars, hearts, snow, etc.)
+         * Has early returns to skip drawing when effects are disabled
+         */
         private fun drawOverlayEffects(
             canvas: Canvas,
             keyRect: RectF,
@@ -3102,6 +3106,7 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             state: TapEffectState,
             progress: Float
         ) {
+            // ⚡ PERFORMANCE: Early returns avoid expensive drawing operations
             if (state.overlays.isEmpty()) return
             val opacity = palette.globalEffectsOpacity.coerceIn(0f, 1f)
             if (opacity <= 0f) return
@@ -4001,7 +4006,9 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         }
 
         private fun buildOverlayState(palette: ThemePaletteV2, key: DynamicKey): Map<String, List<OverlayElement>> {
+            // ⚡ PERFORMANCE: Skip overlay generation entirely if no effects are enabled
             if (palette.globalEffects.isEmpty()) return emptyMap()
+            if (!tapEffectsEnabled && palette.globalEffectsOpacity <= 0f) return emptyMap()
             val keyRect = getKeyRect(key)
             val overlays = mutableMapOf<String, List<OverlayElement>>()
 

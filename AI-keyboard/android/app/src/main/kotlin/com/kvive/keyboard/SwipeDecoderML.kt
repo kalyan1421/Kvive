@@ -26,6 +26,7 @@ class SwipeDecoderML(
         private const val START_PENALTY = -8.0
         private const val SPATIAL_CLAMP = -3.5 // Caps penalty for a single bad point
         private const val INTERPOLATION_STEP = 0.05f // Distance to fill gaps in fast swipes
+        private const val SIGMA_SQ_2 = 2 * SIGMA * SIGMA // Pre-computed constant
     }
 
     data class Hypothesis(
@@ -34,6 +35,11 @@ class SwipeDecoderML(
         val nodeOffset: Int, 
         val lastChar: Char?
     )
+    
+    // ⚡ PERFORMANCE: Pre-allocate reusable collections to reduce GC pressure
+    private val nextBeamBuffer = ArrayList<Hypothesis>(BEAM_WIDTH * 10)
+    private val mergedBuffer = HashMap<Int, Hypothesis>(BEAM_WIDTH * 2)
+    private val resultBuffer = ArrayList<Hypothesis>(BEAM_WIDTH)
 
     fun decode(rawPath: SwipePath): List<Pair<String, Double>> {
         // 1. Interpolate path to handle fast swipes (prevents skipping letters)
@@ -52,7 +58,8 @@ class SwipeDecoderML(
                 val touchX = point.first.toFloat()
                 val touchY = point.second.toFloat()
                 
-                val nextBeam = mutableListOf<Hypothesis>()
+                // ⚡ PERFORMANCE: Reuse pre-allocated buffer instead of creating new list
+                nextBeamBuffer.clear()
 
                 for (hyp in beam) {
                     val children = dictionary.getChildren(hyp.nodeOffset)
@@ -68,7 +75,7 @@ class SwipeDecoderML(
                         }
 
                         // Clamped spatial score allows for one bad point (corner cutting)
-                        val rawSpatial = -(dist * dist) / (2 * SIGMA * SIGMA)
+                        val rawSpatial = -(dist * dist) / SIGMA_SQ_2
                         var spatialScore = rawSpatial.toDouble().coerceAtLeast(SPATIAL_CLAMP)
                         
                         // 🔥 FIX: Double Letter Bonus - helps "cook", "tool", "look", "feel"
@@ -78,7 +85,7 @@ class SwipeDecoderML(
                             spatialScore += 2.5 // Bonus for staying near same key
                         }
 
-                        nextBeam.add(Hypothesis(
+                        nextBeamBuffer.add(Hypothesis(
                             text = hyp.text + char,
                             score = hyp.score + spatialScore,
                             nodeOffset = childOffset,
@@ -93,26 +100,26 @@ class SwipeDecoderML(
                             val keyX = keyPos.first.toFloat()
                             val keyY = keyPos.second.toFloat()
                             val dist = calculateDistance(touchX, touchY, keyX, keyY)
-                            val rawSpatial = -(dist * dist) / (2 * SIGMA * SIGMA)
+                            val rawSpatial = -(dist * dist) / SIGMA_SQ_2
                             val spatialScore = rawSpatial.toDouble().coerceAtLeast(SPATIAL_CLAMP)
                             
-                            nextBeam.add(hyp.copy(score = hyp.score + spatialScore))
+                            nextBeamBuffer.add(hyp.copy(score = hyp.score + spatialScore))
                         }
                     } else {
-                        nextBeam.add(hyp.copy(score = hyp.score + START_PENALTY))
+                        nextBeamBuffer.add(hyp.copy(score = hyp.score + START_PENALTY))
                     }
                 }
 
-                // Prune
-                val merged = HashMap<Int, Hypothesis>()
-                for (h in nextBeam) {
-                    val existing = merged[h.nodeOffset]
+                // ⚡ PERFORMANCE: Reuse pre-allocated HashMap for pruning
+                mergedBuffer.clear()
+                for (h in nextBeamBuffer) {
+                    val existing = mergedBuffer[h.nodeOffset]
                     if (existing == null || h.score > existing.score) {
-                        merged[h.nodeOffset] = h
+                        mergedBuffer[h.nodeOffset] = h
                     }
                 }
                 
-                beam = merged.values.sortedByDescending { it.score }.take(BEAM_WIDTH)
+                beam = mergedBuffer.values.sortedByDescending { it.score }.take(BEAM_WIDTH)
             }
 
             // Final Ranking
