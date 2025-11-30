@@ -469,9 +469,10 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         private const val MIN_SWIPE_DISTANCE = 50f
         
         // Swipe detection thresholds
-        private const val SWIPE_START_THRESHOLD = 12f
-        private const val MIN_SWIPE_TIME_MS = 80L
-        private const val MIN_SWIPE_DISTANCE_PX = 40f
+        // Increased from 12f to 45f to prevent fast taps from being misinterpreted as swipes
+        private const val SWIPE_START_THRESHOLD = 45f  // Increased from 12f - allows sloppy fast taps
+        private const val MIN_SWIPE_TIME_MS = 100L    // Increased from 80L - gives more time for valid swipes
+        private const val MIN_SWIPE_DISTANCE_PX = 45f // Increased from 40f - matches start threshold
     }
     
     /**
@@ -4462,20 +4463,31 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     // Stop delete repeat
                     stopDeleteRepeat()
                     
+                    // ✅ FIX: Track if swipe was successfully handled
+                    var handledAsSwipe = false
+                    
                     if (swipeEligibleForCurrentGesture && isSwipeActive && fingerPoints.size > 1) {
-                        completeSwipe()
-                    } else if (key != null && !isSwipeActive) {
-                        // ✅ Handle tap - handleKeyUp will check if popup is showing and insert selected option
-                        handleKeyUp(key)
-                        fingerPoints.clear()
-                        invalidate()
-                    } else {
-                        // ✅ If popup is showing but key is null, still handle release
-                        if (accentPopup?.isShowing == true && activeAccentKey != null) {
+                        // Try to complete swipe - returns false if swipe was too short/invalid
+                        handledAsSwipe = completeSwipe()
+                    }
+                    
+                    // ✅ FIX: If it wasn't a valid swipe (or wasn't a swipe at all), treat as TAP
+                    // This prevents "dead zone" bug where fast taps are lost
+                    if (!handledAsSwipe) {
+                        if (key != null) {
+                            // Handle tap - handleKeyUp will check if popup is showing and insert selected option
+                            handleKeyUp(key)
+                            fingerPoints.clear()
+                            invalidate()
+                        } else if (accentPopup?.isShowing == true && activeAccentKey != null) {
+                            // If popup is showing but key is null, still handle release
                             handleKeyUp(activeAccentKey!!)
+                            fingerPoints.clear()
+                            invalidate()
+                        } else {
+                            fingerPoints.clear()
+                            invalidate()
                         }
-                        fingerPoints.clear()
-                        invalidate()
                     }
 
                     // Only cancel long press if popup is not showing (popup handles its own cleanup)
@@ -4535,11 +4547,15 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             invalidate()
         }
 
-        private fun completeSwipe() {
+        /**
+         * Completes the swipe gesture and returns whether it was successfully handled as a swipe.
+         * @return true if the swipe was valid and processed, false if it should be treated as a tap instead
+         */
+        private fun completeSwipe(): Boolean {
             if (fingerPoints.size < 2) {
                 fingerPoints.clear()
                 invalidate()
-                return
+                return false // Not a valid swipe - fallback to tap
             }
 
             val durationMs = (System.currentTimeMillis() - swipeStartTime).coerceAtLeast(1L)
@@ -4566,21 +4582,36 @@ class UnifiedKeyboardView @JvmOverloads constructor(
                     fingerPoints.clear()
                     invalidate()
                 }
+                parentView.swipeListener?.onSwipeEnded()
+                isSwipeActive = false
+                return true // Successfully handled as swipe
             } else {
+                // Check if it's a valid gesture (like directional swipe)
                 val source = determineGestureSource()
                 if (source != null) {
                     parentView.gestureHandler?.invoke(source)
+                    if (parentView.showGlideTrailSetting) {
+                        scheduleTrailFade()
+                    } else {
+                        fingerPoints.clear()
+                        invalidate()
+                    }
+                    parentView.swipeListener?.onSwipeEnded()
+                    isSwipeActive = false
+                    return true // Successfully handled as gesture
                 }
+                
+                // Not a valid swipe or gesture - clean up and return false so it can be treated as tap
                 if (parentView.showGlideTrailSetting) {
                     scheduleTrailFade()
                 } else {
                     fingerPoints.clear()
                     invalidate()
                 }
+                parentView.swipeListener?.onSwipeEnded()
+                isSwipeActive = false
+                return false // Not a valid swipe - fallback to tap
             }
-
-            parentView.swipeListener?.onSwipeEnded()
-            isSwipeActive = false
         }
 
         private fun computeTotalDistance(): Float {

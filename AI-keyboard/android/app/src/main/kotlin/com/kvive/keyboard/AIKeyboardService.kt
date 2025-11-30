@@ -470,6 +470,10 @@ class AIKeyboardService : InputMethodService(),
     private val suggestionDebounceMs = 180L  // ✅ FIX 5: Increased from 100ms to 180ms (Gboard uses ~200ms)
     private val suggestionCache = mutableMapOf<String, List<String>>()
     
+    // PERFORMANCE: Debounced Firebase refresh to prevent updates during typing
+    private var firebaseRefreshJob: Job? = null
+    private val firebaseRefreshDebounceMs = 5000L  // Only refresh 5 seconds after typing stops
+    
     // Swipe typing state
     private val swipeBuffer = StringBuilder()
     private val swipePath = mutableListOf<Int>()
@@ -3850,7 +3854,7 @@ class AIKeyboardService : InputMethodService(),
             }
             
             currentWord += Character.toLowerCase(code)
-            Log.d(TAG, "Updated currentWord: '$currentWord'")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Updated currentWord: '$currentWord'")
             
             // ========== TIMING TRACKING FOR GBOARD-STYLE AUTOCORRECT ==========
             // Record keypress timing for fast-typing detection
@@ -3868,7 +3872,7 @@ class AIKeyboardService : InputMethodService(),
                 // If user is typing something that doesn't match the shortcut, clear expansion tracking
                 if (!shortcut.startsWith(currentWord, ignoreCase = true)) {
                     lastExpansion = null
-                    Log.d(TAG, "🔒 Dictionary undo disabled - user typed new characters")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "🔒 Dictionary undo disabled - user typed new characters")
                 }
             }
             
@@ -3876,13 +3880,13 @@ class AIKeyboardService : InputMethodService(),
             lastCorrection?.let { (_, corrected) ->
                 if (!corrected.startsWith(currentWord, ignoreCase = true)) {
                     lastCorrection = null // Clear to disable undo
-                    Log.d(TAG, "🔒 Undo disabled - user accepted correction and continued typing")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "🔒 Undo disabled - user accepted correction and continued typing")
                 }
             }
         } else if (Character.isSpaceChar(code) || code == ' ' || isPunctuation(code)) {
             // Non-letter character ends current word
             if (currentWord.isNotEmpty()) {
-                Log.d(TAG, "Non-letter character '$code' - finishing word: '$currentWord'")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Non-letter character '$code' - finishing word: '$currentWord'")
                 finishCurrentWord()
             }
         }
@@ -4116,33 +4120,37 @@ class AIKeyboardService : InputMethodService(),
             return true
         }
         
-        Log.d(TAG, "🔍 Getting best suggestion for: '$original'")
-        
+        if (BuildConfig.DEBUG) Log.d(TAG, "🔍 Getting best suggestion for: '$original'")
+
         try {
-            // ========== GBOARD-STYLE TIMING CHECK ==========
-            // Skip autocorrect if user typed fast or pressed space quickly
-            val skipDueToTiming = autocorrectEngine.isTypingFast() || autocorrectEngine.isSpacePressedFast()
-            if (skipDueToTiming) {
-                Log.d(TAG, "⚡ Fast typing detected for '$original' → committing as-is")
-                autocorrectEngine.clearTimingHistory()
-                wordHistory.add(original)
-                if (wordHistory.size > 20) wordHistory.removeAt(0)
-                if (code == KEYCODE_SPACE) {
-                    commitSpaceWithDoublePeriod(ic)
-                    applyPostSpaceEffects(ic)
-                } else if (code > 0) {
-                    ic.commitText(String(Character.toChars(code)), 1)
-                    lastSpaceTimestamp = 0L
-                }
-                return true
-            }
+            // ========== GBOARD-STYLE TIMING CHECK (DISABLED) ==========
+            // Disabled: Fast typing check was too aggressive and prevented autocorrect
+            // when users type quickly. Fast typists need autocorrect MORE, not less,
+            // since fast typing leads to more typos.
+            // 
+            // Original code (commented out):
+            // val skipDueToTiming = autocorrectEngine.isTypingFast() || autocorrectEngine.isSpacePressedFast()
+            // if (skipDueToTiming) {
+            //     Log.d(TAG, "⚡ Fast typing detected for '$original' → committing as-is")
+            //     autocorrectEngine.clearTimingHistory()
+            //     wordHistory.add(original)
+            //     if (wordHistory.size > 20) wordHistory.removeAt(0)
+            //     if (code == KEYCODE_SPACE) {
+            //         commitSpaceWithDoublePeriod(ic)
+            //         applyPostSpaceEffects(ic)
+            //     } else if (code > 0) {
+            //         ic.commitText(String(Character.toChars(code)), 1)
+            //         lastSpaceTimestamp = 0L
+            //     }
+            //     return true
+            // }
             
             val best = autocorrectEngine.getBestSuggestion(original, currentLanguage)
-            Log.d(TAG, "🔍 Best suggestion: '$best' for '$original'")
+            if (BuildConfig.DEBUG) Log.d(TAG, "🔍 Best suggestion: '$best' for '$original'")
             
             if (best != null && ::userDictionaryManager.isInitialized) {
                 if (userDictionaryManager.isBlacklisted(original, best)) {
-                    Log.d(TAG, "🚫 Suggestion '$best' for '$original' is blacklisted; skipping autocorrect")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "🚫 Suggestion '$best' for '$original' is blacklisted; skipping autocorrect")
                     if (code == KEYCODE_SPACE) {
                         commitSpaceWithDoublePeriod(ic)
                         applyPostSpaceEffects(ic)
@@ -4163,7 +4171,7 @@ class AIKeyboardService : InputMethodService(),
             }
             
             if (best == null) {
-                Log.d(TAG, "🔍 No suggestion available")
+                if (BuildConfig.DEBUG) Log.d(TAG, "🔍 No suggestion available")
                 
                 // ✅ Add original word to history for next-word prediction
                 wordHistory.add(original)
@@ -5320,13 +5328,13 @@ class AIKeyboardService : InputMethodService(),
     private fun updateAISuggestions() {
         // ✅ FIX 9: Do not trigger suggestions during programmatic text commits
         if (isCommittingText) {
-            Log.d(TAG, "🚫 Skipping suggestion update - programmatic text commit in progress")
+            if (BuildConfig.DEBUG) Log.d(TAG, "🚫 Skipping suggestion update - programmatic text commit in progress")
             return
         }
         
         // Guard: Check if UnifiedKeyboardView is ready
         if (!unifiedViewReady || unifiedKeyboardView == null) {
-            Log.d(TAG, "🕐 Deferring AI suggestions until UnifiedKeyboardView is ready")
+            if (BuildConfig.DEBUG) Log.d(TAG, "🕐 Deferring AI suggestions until UnifiedKeyboardView is ready")
             return
         }
         
@@ -5339,7 +5347,7 @@ class AIKeyboardService : InputMethodService(),
         // ✅ FIX: Always fetch suggestions, even if last char is space
         // The logic inside fetchUnifiedSuggestions handles empty words correctly (next-word prediction)
         suggestionUpdateJob?.cancel()
-        suggestionUpdateJob = coroutineScope.launch {
+        suggestionUpdateJob = coroutineScope.launch(Dispatchers.Default) { // ✅ Run on background thread
             delay(suggestionDebounceMs)
             if (isActive) {
                 fetchUnifiedSuggestions()
@@ -9289,11 +9297,19 @@ class AIKeyboardService : InputMethodService(),
     /**
      * Refresh LanguageResources after user data changes (NEW UNIFIED APPROACH)
      * Called when user dictionary or shortcuts are updated
+     * ✅ PERFORMANCE FIX: Debounced to 5 seconds to prevent refreshes during typing
      */
     private fun refreshLanguageResourcesAsync() {
-        coroutineScope.launch {
+        // Cancel any pending refresh and schedule a new one
+        firebaseRefreshJob?.cancel()
+        firebaseRefreshJob = coroutineScope.launch(Dispatchers.Default) {
+            // Wait for typing to stop before refreshing
+            delay(firebaseRefreshDebounceMs)
+            
+            if (!isActive) return@launch
+            
             try {
-                Log.d(TAG, "🔄 Refreshing Firebase resources for $currentLanguage with updated user data")
+                if (BuildConfig.DEBUG) Log.d(TAG, "🔄 Refreshing Firebase resources for $currentLanguage with updated user data")
                 
                 // Only refresh if the language is already loaded to prevent excessive activations
                 if (autocorrectEngine.hasLanguage(currentLanguage)) {
@@ -9305,10 +9321,10 @@ class AIKeyboardService : InputMethodService(),
                         if (autocorrectEngine.currentLanguage != currentLanguage) {
                             autocorrectEngine.setLanguage(currentLanguage, resources)
                         }
-                        Log.d(TAG, "✅ Firebase resources refreshed: ${resources.userWords.size} user words, ${resources.shortcuts.size} shortcuts")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "✅ Firebase resources refreshed: ${resources.userWords.size} user words, ${resources.shortcuts.size} shortcuts")
                     }
                 } else {
-                    Log.w(TAG, "⚠️ Language $currentLanguage not loaded, skipping refresh")
+                    if (BuildConfig.DEBUG) Log.w(TAG, "⚠️ Language $currentLanguage not loaded, skipping refresh")
                 }
                 
             } catch (e: Exception) {
