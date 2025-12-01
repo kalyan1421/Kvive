@@ -149,6 +149,8 @@ class _LanguageScreenState extends State<LanguageScreen> {
         final status = args['status'] as String;
         final error = args['error'] as String?;
         
+        debugPrint('📥 Language download progress: $lang - $progress% ($status)');
+        
         setState(() {
           _downloadStates[lang] = LanguageDownloadState(
             language: lang,
@@ -159,8 +161,18 @@ class _LanguageScreenState extends State<LanguageScreen> {
           );
         });
         
-        // Handle completion
-        if (status == 'completed') {
+        // Handle completion - trigger keyboard refresh
+        if (status == 'completed' || status == 'offline_enabled') {
+          debugPrint('✅ Language download completed: $lang');
+          
+          // ✅ CRITICAL FIX: Send broadcast to refresh keyboard with new language
+          try {
+            await _configChannel.invokeMethod('broadcastSettingsChanged');
+            debugPrint('✅ Keyboard refresh broadcast sent after $lang download');
+          } catch (e) {
+            debugPrint('⚠️ broadcastSettingsChanged failed: $e');
+          }
+          
           Future.delayed(const Duration(seconds: 1), () {
             if (mounted) {
               setState(() {
@@ -207,7 +219,7 @@ class _LanguageScreenState extends State<LanguageScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       
-      // Save to SharedPreferences
+      // ✅ CRITICAL FIX: Save as StringList (Flutter format)
       await prefs.setStringList(kEnabledLanguagesKey, selectedLanguages);
       
       // Set default language to first in list if not set
@@ -215,18 +227,28 @@ class _LanguageScreenState extends State<LanguageScreen> {
         await prefs.setString(kDefaultLanguageKey, selectedLanguages.first);
       }
       
-      // Set current language if not set
-      final currentLang = prefs.getString(kCurrentLanguageKey);
-      if (currentLang == null || currentLang.isEmpty) {
-        await prefs.setString(kCurrentLanguageKey, selectedLanguages.isNotEmpty ? selectedLanguages.first : 'en');
+      // Set current language if not set or if current is no longer in list
+      var currentLang = prefs.getString(kCurrentLanguageKey);
+      if (currentLang == null || currentLang.isEmpty || !selectedLanguages.contains(currentLang)) {
+        currentLang = selectedLanguages.isNotEmpty ? selectedLanguages.first : 'en';
+        await prefs.setString(kCurrentLanguageKey, currentLang);
       }
       
-      // Notify Kotlin via MethodChannel
-      final current = prefs.getString(kCurrentLanguageKey) ?? (selectedLanguages.isNotEmpty ? selectedLanguages.first : 'en');
+      debugPrint('💾 Saving languages: enabled=$selectedLanguages, current=$currentLang');
+      
+      // ✅ CRITICAL: Notify Kotlin via MethodChannel to update keyboard service
       await _configChannel.invokeMethod('setEnabledLanguages', {
         'enabled': selectedLanguages,
-        'current': current,
+        'current': currentLang,
       });
+      
+      // ✅ Also send settings changed broadcast to force keyboard reload
+      try {
+        await _configChannel.invokeMethod('broadcastSettingsChanged');
+        debugPrint('✅ Settings changed broadcast sent');
+      } catch (e) {
+        debugPrint('⚠️ broadcastSettingsChanged failed (non-critical): $e');
+      }
       
       // Show success feedback
       if (mounted) {
@@ -238,7 +260,7 @@ class _LanguageScreenState extends State<LanguageScreen> {
         );
       }
     } catch (e) {
-      debugPrint('Error saving language preferences: $e');
+      debugPrint('❌ Error saving language preferences: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

@@ -536,6 +536,12 @@ class AIKeyboardService : InputMethodService(),
                                 Log.d(TAG, "📥 Loading settings from broadcast...")
                                 lastSettingsApply = currentTime
                                 
+                                // ✅ CRITICAL FIX: Reload language preferences first
+                                if (::languageManager.isInitialized) {
+                                    languageManager.reloadPreferences()
+                                }
+                                loadLanguagePreferences()
+                                
                                 // ✅ FIX: Explicitly reload sound settings when settings change
                                 onSettingsChanged()
                                 
@@ -553,8 +559,17 @@ class AIKeyboardService : InputMethodService(),
                                 val numberRowEnabled = getNumberRowEnabled()
                                 if (currentKeyboardMode == KeyboardMode.LETTERS) {
                                     coroutineScope.launch {
-                                        loadLanguageLayout(currentLanguage)
-                                        Log.d(TAG, "✅ Layout reloaded with numberRow=$numberRowEnabled")
+                                        // ✅ Use current language from preferences
+                                        val targetLang = currentLanguage
+                                        loadLanguageLayout(targetLang)
+                                        Log.d(TAG, "✅ Layout reloaded for $targetLang with numberRow=$numberRowEnabled")
+                                        
+                                        // Also activate the language to ensure dictionary is loaded
+                                        try {
+                                            activateLanguage(targetLang)
+                                        } catch (e: Exception) {
+                                            Log.w(TAG, "⚠️ Could not activate language during settings reload", e)
+                                        }
                                     }
                                 }
                                 
@@ -674,16 +689,56 @@ class AIKeyboardService : InputMethodService(),
                     "com.kvive.keyboard.LANGUAGE_CHANGED" -> {
                         val language = intent?.getStringExtra("language")
                         val multiEnabled = intent?.getBooleanExtra("multilingual_enabled", false)
-                        Log.d(TAG, "LANGUAGE_CHANGED broadcast received! Language: $language, Multi: $multiEnabled")
+                        val enabledLangsList = intent?.getStringArrayListExtra("enabled_languages")
+                        Log.d(TAG, "LANGUAGE_CHANGED broadcast received! Language: $language, Multi: $multiEnabled, Enabled: $enabledLangsList")
                         mainHandler.post {
                             try {
+                                // ✅ CRITICAL FIX: Reload LanguageManager preferences first
+                                if (::languageManager.isInitialized) {
+                                    languageManager.reloadPreferences()
+                                    Log.d(TAG, "✅ LanguageManager preferences reloaded")
+                                }
+                                
                                 // Reload language preferences from SharedPreferences
                                 loadLanguagePreferences()
                                 
-                                // If we're in LETTERS mode, reload the keyboard layout
-                                if (currentKeyboardMode == KeyboardMode.LETTERS) {
-                                    switchKeyboardMode(KeyboardMode.LETTERS)
-                                    Log.d(TAG, "✅ Keyboard layout reloaded after language change")
+                                // ✅ CRITICAL FIX: Activate language to load dictionary and autocorrect
+                                val targetLang = language ?: currentLanguage
+                                coroutineScope.launch {
+                                    try {
+                                        // Activate language to ensure dictionary and autocorrect are loaded
+                                        activateLanguage(targetLang)
+                                        Log.d(TAG, "✅ Language activated: $targetLang")
+                                        
+                                        // Reinitialize transliteration for the new language
+                                        withContext(Dispatchers.Main) {
+                                            initializeTransliteration()
+                                        }
+                                        
+                                        // If we're in LETTERS mode, reload the keyboard layout on main thread
+                                        withContext(Dispatchers.Main) {
+                                            if (currentKeyboardMode == KeyboardMode.LETTERS) {
+                                                // Use buildAndRender for proper layout loading
+                                                if (::unifiedController.isInitialized) {
+                                                    val numberRow = getNumberRowEnabled()
+                                                    unifiedController.buildAndRender(
+                                                        targetLang, 
+                                                        LanguageLayoutAdapter.KeyboardMode.LETTERS, 
+                                                        numberRow,
+                                                        force = true
+                                                    )
+                                                } else {
+                                                    switchKeyboardMode(KeyboardMode.LETTERS)
+                                                }
+                                                Log.d(TAG, "✅ Keyboard layout reloaded after language change")
+                                            }
+                                            
+                                            // Update spacebar label
+                                            updateSpacebarLanguageLabel(targetLang)
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "❌ Error activating language", e)
+                                    }
                                 }
                                 
                                 if (language != null) {
@@ -2549,18 +2604,21 @@ class AIKeyboardService : InputMethodService(),
     
     /**
      * Load language preferences from SharedPreferences
+     * 
+     * IMPORTANT: Flutter's SharedPreferences stores StringList in multiple formats:
+     * - JSON array format: ["en","hi","te"] (older Flutter versions)
+     * - Comma-separated: en,hi,te (when set from Kotlin)
+     * - StringSet format with prefix VGhpcy... (some versions)
+     * 
+     * This method handles all formats for robustness.
      */
     private fun loadLanguagePreferences() {
         try {
             val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             
-            // Load enabled languages (comma-separated string)
+            // Load enabled languages - handle multiple storage formats
             val enabledLangsStr = prefs.getString("flutter.enabled_languages", null)
-            enabledLanguages = if (enabledLangsStr != null && enabledLangsStr.isNotEmpty()) {
-                enabledLangsStr.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            } else {
-                listOf("en") // Default to English
-            }
+            enabledLanguages = parseLanguageList(enabledLangsStr)
             
             // CRITICAL: Ensure enabled list is never empty
             if (enabledLanguages.isEmpty()) {
@@ -2586,21 +2644,146 @@ class AIKeyboardService : InputMethodService(),
                 Log.d(TAG, "✅ Corrected current language to: $currentLanguage")
             }
             
-        // Load multilingual mode
-        multilingualEnabled = prefs.getBoolean("flutter.multilingual_enabled", false)
-        
-        // Phase 2: Load feature flags
-        transliterationEnabled = prefs.getBoolean("flutter.transliteration_enabled", true)
-        reverseTransliterationEnabled = prefs.getBoolean("flutter.reverse_transliteration_enabled", false)
-        
-        // Update current language index
-        currentLanguageIndex = enabledLanguages.indexOf(currentLanguage).coerceAtLeast(0)
+            // Load multilingual mode
+            multilingualEnabled = prefs.getBoolean("flutter.multilingual_enabled", false)
+            
+            // Phase 2: Load feature flags
+            transliterationEnabled = prefs.getBoolean("flutter.transliteration_enabled", true)
+            reverseTransliterationEnabled = prefs.getBoolean("flutter.reverse_transliteration_enabled", false)
+            
+            // Update current language index
+            currentLanguageIndex = enabledLanguages.indexOf(currentLanguage).coerceAtLeast(0)
+            
+            // ✅ CRITICAL FIX: Sync with LanguageManager to keep both in sync
+            if (::languageManager.isInitialized) {
+                val languageManagerEnabled = languageManager.getEnabledLanguages()
+                if (languageManagerEnabled != enabledLanguages.toSet()) {
+                    Log.d(TAG, "🔄 Syncing LanguageManager with Flutter preferences")
+                    languageManager.setEnabledLanguages(enabledLanguages.toSet())
+                }
+                if (languageManager.getCurrentLanguage() != currentLanguage) {
+                    languageManager.switchToLanguage(currentLanguage)
+                }
+            }
+            
+            Log.d(TAG, "✅ Language preferences loaded: current=$currentLanguage, enabled=$enabledLanguages")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error loading language preferences", e)
             enabledLanguages = listOf("en")
             currentLanguage = "en"
             currentLanguageIndex = 0
             multilingualEnabled = false
+        }
+    }
+    
+    /**
+     * Parse language list from various storage formats
+     * Handles: JSON array ["en","hi"], comma-separated "en,hi", and single values
+     */
+    private fun parseLanguageList(value: String?): List<String> {
+        if (value.isNullOrEmpty()) return listOf("en")
+        
+        val trimmed = value.trim()
+        
+        // Try JSON array format first: ["en","hi","te"]
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            try {
+                val jsonArray = org.json.JSONArray(trimmed)
+                val result = mutableListOf<String>()
+                for (i in 0 until jsonArray.length()) {
+                    val lang = jsonArray.getString(i).trim()
+                    if (lang.isNotEmpty()) {
+                        result.add(lang)
+                    }
+                }
+                if (result.isNotEmpty()) {
+                    Log.d(TAG, "✅ Parsed JSON array languages: $result")
+                    return result
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "⚠️ Failed to parse as JSON array: $trimmed", e)
+            }
+        }
+        
+        // Try comma-separated format: "en,hi,te"
+        if (trimmed.contains(",")) {
+            val result = trimmed.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            if (result.isNotEmpty()) {
+                Log.d(TAG, "✅ Parsed comma-separated languages: $result")
+                return result
+            }
+        }
+        
+        // Single language value
+        if (trimmed.isNotEmpty() && !trimmed.startsWith("[")) {
+            Log.d(TAG, "✅ Single language value: $trimmed")
+            return listOf(trimmed)
+        }
+        
+        return listOf("en")
+    }
+    
+    /**
+     * Check for language changes from Flutter app and apply them
+     * Called every time keyboard opens to handle cross-process communication
+     */
+    private fun checkAndApplyLanguageChanges() {
+        try {
+            val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            val storedEnabledStr = prefs.getString("flutter.enabled_languages", null)
+            val storedCurrent = prefs.getString("flutter.current_language", null)
+            
+            // Parse stored enabled languages
+            val storedEnabled = parseLanguageList(storedEnabledStr)
+            
+            // Check if enabled languages changed
+            val currentEnabled = enabledLanguages
+            val languagesChanged = storedEnabled.isNotEmpty() && storedEnabled.toSet() != currentEnabled.toSet()
+            
+            // Check if current language changed
+            val currentLangChanged = storedCurrent != null && storedCurrent.isNotEmpty() && 
+                                     storedCurrent != currentLanguage && storedEnabled.contains(storedCurrent)
+            
+            if (languagesChanged || currentLangChanged) {
+                Log.d(TAG, "🔄 Language changes detected! Enabled: $currentEnabled → $storedEnabled, Current: $currentLanguage → $storedCurrent")
+                
+                // Reload all language preferences
+                if (::languageManager.isInitialized) {
+                    languageManager.reloadPreferences()
+                }
+                loadLanguagePreferences()
+                
+                // Activate the new current language
+                val targetLang = storedCurrent ?: currentLanguage
+                coroutineScope.launch {
+                    try {
+                        activateLanguage(targetLang)
+                        Log.d(TAG, "✅ Language activated on keyboard open: $targetLang")
+                        
+                        // Reload keyboard layout
+                        withContext(Dispatchers.Main) {
+                            initializeTransliteration()
+                            
+                            if (currentKeyboardMode == KeyboardMode.LETTERS && ::unifiedController.isInitialized) {
+                                val numberRow = getNumberRowEnabled()
+                                unifiedController.buildAndRender(
+                                    targetLang,
+                                    LanguageLayoutAdapter.KeyboardMode.LETTERS,
+                                    numberRow,
+                                    force = true
+                                )
+                                Log.d(TAG, "✅ Keyboard layout reloaded for $targetLang")
+                            }
+                            
+                            updateSpacebarLanguageLabel(targetLang)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "❌ Error applying language changes", e)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error checking for language changes", e)
         }
     }
     
@@ -6336,6 +6519,10 @@ class AIKeyboardService : InputMethodService(),
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
+        
+        // ✅ CRITICAL FIX: Check for language changes from Flutter app every time keyboard opens
+        // This handles cross-process communication when broadcasts don't reach the IME process
+        checkAndApplyLanguageChanges()
         
         // Always reset panels so keyboard opens in typing mode
         unifiedKeyboardView?.backToTyping()

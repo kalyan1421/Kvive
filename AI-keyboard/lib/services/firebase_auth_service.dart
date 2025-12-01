@@ -295,7 +295,7 @@ class FirebaseAuthService {
             'predictiveTextEnabled': true,
             'aiSuggestionsEnabled': true,
             'swipeTypingEnabled': true,
-            'vibrationEnabled': true,
+            'vibrationEnabled': false, // ✅ Default OFF until user enables
             'keyPreviewEnabled': false,
             'shiftFeedbackEnabled': false,
             'showNumberRow': false,

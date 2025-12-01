@@ -116,7 +116,7 @@ class KeyboardSettingsBootstrapper {
         'aiSuggestions': prefs.getBool('ai_suggestions') ?? true,
         'autoCorrect': prefs.getBool('auto_correct') ?? true,
         'swipeTyping': prefs.getBool('swipe_typing') ?? true,
-        'vibration': prefs.getBool('vibration_enabled') ?? true,
+        'vibration': prefs.getBool('vibration_enabled') ?? false, // ✅ Default OFF until user enables
         'keyPreview': prefs.getBool('key_preview_enabled') ?? false,
         'shiftFeedback': prefs.getBool('show_shift_feedback') ?? false,
         'showNumberRow': prefs.getBool('keyboard.numberRow') ?? false,

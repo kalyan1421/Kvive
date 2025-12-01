@@ -121,7 +121,7 @@ class KeyboardCloudSync {
       "doubleSpacePeriod": true,
       "soundEnabled": false, // ✅ Sound OFF by default
       "soundVolume": 0.5,
-      "vibrationEnabled": true,
+      "vibrationEnabled": false, // ✅ Vibration OFF by default until user enables
       "vibrationMs": 50,
       "updatedAt": FieldValue.serverTimestamp(),
     };
@@ -183,7 +183,7 @@ class KeyboardCloudSync {
         'doubleSpacePeriod': data['doubleSpacePeriod'] ?? true,
         'soundEnabled': data['soundEnabled'] ?? false,
         'soundVolume': (data['soundVolume'] ?? 0.5).toDouble(), // Keep 0-1 scale for updateSettings
-        'vibrationEnabled': data['vibrationEnabled'] ?? true,
+        'vibrationEnabled': data['vibrationEnabled'] ?? false, // ✅ Default OFF
         'vibrationMs': data['vibrationMs'] ?? 50,
       });
       debugPrint('$_tag: ✓ Native keyboard notified via MethodChannel');

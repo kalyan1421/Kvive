@@ -2771,8 +2771,9 @@ private enum class ToneAction(
         val service = AIKeyboardService.getInstance()
         val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
 
-        val soundFallback = prefs.getBoolean("sound_enabled", true)
-        val vibrationFallback = prefs.getBoolean("vibration_enabled", true)
+        // ✅ CRITICAL FIX: Default sound and vibration to FALSE until user enables them
+        val soundFallback = prefs.getBoolean("sound_enabled", false)
+        val vibrationFallback = prefs.getBoolean("vibration_enabled", false)
         val numberRowFallback = prefs.getBoolean("show_number_row", false)
         val autoCorrectFallback = prefs.getBoolean("auto_correct", true)
         val oneHandedFallback = flutterPrefs.getBoolean("flutter.keyboard_settings.one_handed_mode", false)

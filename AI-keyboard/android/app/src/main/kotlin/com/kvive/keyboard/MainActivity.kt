@@ -145,17 +145,18 @@ class MainActivity : FlutterActivity() {
                                 val rememberCapsState = call.argument<Boolean>("rememberCapsState") ?: false
                                 
                                 // Sound & Vibration Settings (Unified System)
-                                val soundEnabled = call.argument<Boolean>("soundEnabled") ?: true
+                                // ✅ CRITICAL FIX: Default sound and vibration to FALSE until user enables
+                                val soundEnabled = call.argument<Boolean>("soundEnabled") ?: false
                                 val soundVolume = call.argument<Double>("soundVolume") ?: 0.5
-                                val keyPressSounds = call.argument<Boolean>("keyPressSounds") ?: true
-                                val longPressSounds = call.argument<Boolean>("longPressSounds") ?: true
-                                val repeatedActionSounds = call.argument<Boolean>("repeatedActionSounds") ?: true
-                                val vibrationEnabled = call.argument<Boolean>("vibrationEnabled") ?: true
+                                val keyPressSounds = call.argument<Boolean>("keyPressSounds") ?: false
+                                val longPressSounds = call.argument<Boolean>("longPressSounds") ?: false
+                                val repeatedActionSounds = call.argument<Boolean>("repeatedActionSounds") ?: false
+                                val vibrationEnabled = call.argument<Boolean>("vibrationEnabled") ?: false
                                 val vibrationMs = call.argument<Int>("vibrationMs") ?: 50
-                                val useHapticInterface = call.argument<Boolean>("useHapticInterface") ?: true
-                                val keyPressVibration = call.argument<Boolean>("keyPressVibration") ?: true
-                                val longPressVibration = call.argument<Boolean>("longPressVibration") ?: true
-                                val repeatedActionVibration = call.argument<Boolean>("repeatedActionVibration") ?: true
+                                val useHapticInterface = call.argument<Boolean>("useHapticInterface") ?: false
+                                val keyPressVibration = call.argument<Boolean>("keyPressVibration") ?: false
+                                val longPressVibration = call.argument<Boolean>("longPressVibration") ?: false
+                                val repeatedActionVibration = call.argument<Boolean>("repeatedActionVibration") ?: false
                                 
                                 // Legacy settings (backwards compat)
                                 val swipeTyping = call.argument<Boolean>("swipeTyping") ?: true
@@ -867,18 +868,43 @@ class MainActivity : FlutterActivity() {
             // Store in FlutterSharedPreferences format
             val prefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
             
-            // Store enabled languages as comma-separated string
+            // ✅ CRITICAL FIX: Store enabled languages in BOTH formats for compatibility
+            // JSON array format (for Flutter reading) and comma-separated (for Kotlin reading)
+            val jsonArray = org.json.JSONArray(languages)
             prefs.edit()
-                .putString("flutter.enabled_languages", languages.joinToString(","))
+                .putString("flutter.enabled_languages", jsonArray.toString())
                 .putString("flutter.current_language", current)
                 .apply()
             
-            LogUtil.d("MainActivity", "✅ Enabled languages saved: $languages")
+            LogUtil.d("MainActivity", "✅ Enabled languages saved: $languages (JSON: ${jsonArray})")
             
-            // Send broadcast to keyboard service
-            sendLanguageChangeBroadcast(current)
+            // ✅ CRITICAL FIX: Also update LanguageManager's own SharedPreferences
+            // This ensures both storage locations are in sync
+            val langManagerPrefs = getSharedPreferences("keyboard_language_prefs", Context.MODE_PRIVATE)
+            langManagerPrefs.edit()
+                .putString("current_language", current)
+                .putStringSet("enabled_languages", languages.toSet())
+                .apply()
+            LogUtil.d("MainActivity", "✅ LanguageManager prefs also updated")
+            
+            // Send broadcast to keyboard service with full language list
+            sendLanguageChangeBroadcastWithList(languages, current)
         } catch (e: Exception) {
             LogUtil.e("MainActivity", "❌ Error setting enabled languages", e)
+        }
+    }
+    
+    private fun sendLanguageChangeBroadcastWithList(languages: List<String>, current: String) {
+        try {
+            val intent = Intent("com.kvive.keyboard.LANGUAGE_CHANGED").apply {
+                setPackage(packageName)
+                putExtra("language", current)
+                putStringArrayListExtra("enabled_languages", ArrayList(languages))
+            }
+            sendBroadcast(intent)
+            LogUtil.d("MainActivity", "✅ Language change broadcast sent: $current, enabled: $languages")
+        } catch (e: Exception) {
+            LogUtil.e("MainActivity", "❌ Failed to send language change broadcast", e)
         }
     }
     
@@ -889,7 +915,13 @@ class MainActivity : FlutterActivity() {
                 .putString("flutter.current_language", language)
                 .apply()
             
-            LogUtil.d("MainActivity", "✅ Current language set to: $language")
+            // ✅ CRITICAL FIX: Also update LanguageManager's own SharedPreferences
+            val langManagerPrefs = getSharedPreferences("keyboard_language_prefs", Context.MODE_PRIVATE)
+            langManagerPrefs.edit()
+                .putString("current_language", language)
+                .apply()
+            
+            LogUtil.d("MainActivity", "✅ Current language set to: $language (both prefs updated)")
             
             // Send broadcast to keyboard service
             sendLanguageChangeBroadcast(language)

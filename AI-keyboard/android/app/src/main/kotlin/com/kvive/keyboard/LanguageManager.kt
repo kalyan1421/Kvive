@@ -66,10 +66,43 @@ class LanguageManager(context: Context) : BaseManager(context) {
     
     /**
      * Load language preferences from SharedPreferences
+     * 
+     * ✅ CRITICAL FIX: Now syncs with FlutterSharedPreferences to stay in sync with Flutter app
      */
     private fun loadPreferences() {
+        // First, try to load from our own preferences
         currentLanguage = prefs.getString(KEY_CURRENT_LANGUAGE, "en") ?: "en"
         enabledLanguages = prefs.getStringSet(KEY_ENABLED_LANGUAGES, setOf("en"))?.toMutableSet() ?: mutableSetOf("en")
+        
+        // ✅ CRITICAL: Also check FlutterSharedPreferences for changes from Flutter app
+        try {
+            val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            val flutterCurrent = flutterPrefs.getString("flutter.current_language", null)
+            val flutterEnabledStr = flutterPrefs.getString("flutter.enabled_languages", null)
+            
+            // Parse Flutter enabled languages (can be JSON array or comma-separated)
+            val flutterEnabled = parseFlutterLanguageList(flutterEnabledStr)
+            
+            // If Flutter has data, use it as the source of truth
+            if (flutterEnabled.isNotEmpty()) {
+                val flutterEnabledSet = flutterEnabled.toMutableSet()
+                if (flutterEnabledSet != enabledLanguages) {
+                    logW("🔄 Syncing with Flutter preferences: $flutterEnabledSet")
+                    enabledLanguages = flutterEnabledSet
+                    saveEnabledLanguages()
+                }
+            }
+            
+            if (flutterCurrent != null && flutterCurrent.isNotEmpty() && enabledLanguages.contains(flutterCurrent)) {
+                if (currentLanguage != flutterCurrent) {
+                    logW("🔄 Syncing current language from Flutter: $flutterCurrent")
+                    currentLanguage = flutterCurrent
+                    saveCurrentLanguage()
+                }
+            }
+        } catch (e: Exception) {
+            logE("⚠️ Could not sync with FlutterSharedPreferences", e)
+        }
         
         // Ensure current language is in enabled languages
         if (!enabledLanguages.contains(currentLanguage)) {
@@ -81,12 +114,63 @@ class LanguageManager(context: Context) : BaseManager(context) {
     }
     
     /**
+     * Parse Flutter language list from various storage formats
+     */
+    private fun parseFlutterLanguageList(value: String?): List<String> {
+        if (value.isNullOrEmpty()) return emptyList()
+        
+        val trimmed = value.trim()
+        
+        // Try JSON array format first: ["en","hi","te"]
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            try {
+                val jsonArray = org.json.JSONArray(trimmed)
+                val result = mutableListOf<String>()
+                for (i in 0 until jsonArray.length()) {
+                    val lang = jsonArray.getString(i).trim()
+                    if (lang.isNotEmpty()) {
+                        result.add(lang)
+                    }
+                }
+                if (result.isNotEmpty()) {
+                    return result
+                }
+            } catch (e: Exception) {
+                // Fall through to comma-separated parsing
+            }
+        }
+        
+        // Try comma-separated format: "en,hi,te"
+        if (trimmed.contains(",")) {
+            return trimmed.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        }
+        
+        // Single language value
+        if (trimmed.isNotEmpty() && !trimmed.startsWith("[")) {
+            return listOf(trimmed)
+        }
+        
+        return emptyList()
+    }
+    
+    /**
+     * Reload preferences from SharedPreferences (call after Flutter updates settings)
+     */
+    fun reloadPreferences() {
+        loadPreferences()
+        logW("✅ Preferences reloaded - Current: $currentLanguage, Enabled: $enabledLanguages")
+    }
+    
+    /**
      * Switch to the next enabled language
      */
     fun switchToNextLanguage() {
+        // ✅ CRITICAL FIX: Reload preferences first to catch any changes from Flutter app
+        loadPreferences()
+        
         val enabledList = enabledLanguages.toList().sorted()
         if (enabledList.size <= 1) {
-            logW("Only one language enabled, no switching needed")
+            logW("Only one language enabled (${enabledList.firstOrNull()}), no switching needed")
             return
         }
         
@@ -94,7 +178,19 @@ class LanguageManager(context: Context) : BaseManager(context) {
         val nextIndex = (currentIndex + 1) % enabledList.size
         val nextLanguage = enabledList[nextIndex]
         
+        logW("🔄 Switching language: $currentLanguage → $nextLanguage (index $currentIndex → $nextIndex)")
         switchToLanguage(nextLanguage)
+        
+        // ✅ Also update FlutterSharedPreferences so Flutter app stays in sync
+        try {
+            val flutterPrefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+            flutterPrefs.edit()
+                .putString("flutter.current_language", nextLanguage)
+                .apply()
+            logW("✅ FlutterSharedPreferences updated with current language: $nextLanguage")
+        } catch (e: Exception) {
+            logE("⚠️ Could not update FlutterSharedPreferences", e)
+        }
     }
     
     /**
