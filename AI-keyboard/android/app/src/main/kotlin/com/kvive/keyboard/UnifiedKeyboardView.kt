@@ -56,10 +56,10 @@ class KeyboardHeightManager(private val context: Context) {
     
     companion object {
         private const val TAG = "KeyboardHeightManager"
-        private const val KEYBOARD_HEIGHT_RATIO = 0.265f
-        private const val DEFAULT_MIN_GRID_HEIGHT_DP = 234
+        private const val KEYBOARD_HEIGHT_RATIO = 0.32f  // Increased to match Gboard height
+        private const val DEFAULT_MIN_GRID_HEIGHT_DP = 280 // Match dimens.xml (5×57dp + gaps)
         private const val DEFAULT_MAX_GRID_HEIGHT_DP = 520
-        private const val STRUCTURAL_MIN_GRID_HEIGHT_DP = 234
+        private const val STRUCTURAL_MIN_GRID_HEIGHT_DP = 280  // Match new minimum
         private const val USER_MIN_GRID_HEIGHT_DP = 140
         private const val USER_MAX_GRID_HEIGHT_DP = 520
         private const val HEIGHT_PERCENT_MIN = 20
@@ -2327,12 +2327,12 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             label == " " || label == "SPACE" || label.startsWith("space") -> {
                 if (hasUtilityKey) 4.0f else 5.0f  // Increased space bar width
             }
-            label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 1.1f  // Smaller return button
-            label == "?123" || label == "ABC" || label == "=<" || label == "123" -> 1.1f
+            label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 1.3f  // Return button
+            label == "?123" || label == "ABC" || label == "=<" || label == "123" -> 1.3f  // Mode switch buttons
             label == "🌐" || label == "GLOBE" -> 1f
             label == "," || label == "." -> 0.8f  // Smaller comma/period buttons
-            label == "⇧" || label == "SHIFT" -> 1.1f  // Match 123/return size
-            label == "⌫" || label == "DELETE" -> 1.1f  // Match 123/return size
+            label == "⇧" || label == "SHIFT" -> 1.3f  // Increased to match return/?123
+            label == "⌫" || label == "DELETE" -> 1.3f  // Increased to match return/?123
             else -> 1.0f
         }
     }
@@ -5134,10 +5134,10 @@ class UnifiedKeyboardView @JvmOverloads constructor(
             label == " " || label == "SPACE" || label.startsWith("space") -> {
                 if (hasUtilityKey) 4.0f else 5.0f  // Increased space bar width
             }
-            label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 1.1f  // Smaller return button
-            label == "⇧" || label == "SHIFT" -> 1.1f  // Match 123/return size
-            label == "⌫" || label == "DELETE" -> 1.1f  // Match 123/return size
-            label == "?123" || label == "ABC" || label == "=<" || label == "123" -> 1.1f
+            label == "⏎" || label == "RETURN" || label == "sym_keyboard_return" -> 1.3f  // Return button
+            label == "⇧" || label == "SHIFT" -> 1.3f  // Increased to match return/?123
+            label == "⌫" || label == "DELETE" -> 1.3f  // Increased to match return/?123
+            label == "?123" || label == "ABC" || label == "=<" || label == "123" -> 1.3f  // Mode switch buttons
             label == "🌐" || label == "GLOBE" -> 1f
             label == "," || label == "." -> 0.8f  // Smaller comma/period buttons
             else -> 1.0f
