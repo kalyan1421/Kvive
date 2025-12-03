@@ -21,7 +21,7 @@ class SwipeDecoderML(
     companion object {
         private const val TAG = "SwipeDecoderML"
         private const val BEAM_WIDTH = 60 
-        private const val SIGMA = 0.14f   // Relaxed Sigma for faster/sloppier swipes
+        private const val SIGMA = 0.10f   // Stricter Sigma to distinguish taps from swipes
         private const val START_RADIUS = 0.18f 
         private const val START_PENALTY = -8.0
         private const val SPATIAL_CLAMP = -3.5 // Caps penalty for a single bad point

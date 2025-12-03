@@ -470,9 +470,9 @@ class UnifiedKeyboardView @JvmOverloads constructor(
         
         // Swipe detection thresholds
         // Increased from 12f to 45f to prevent fast taps from being misinterpreted as swipes
-        private const val SWIPE_START_THRESHOLD = 45f  // Increased from 12f - allows sloppy fast taps
+        private const val SWIPE_START_THRESHOLD = 70f  // Increased from 45f - prevents fast taps from triggering swipes
         private const val MIN_SWIPE_TIME_MS = 100L    // Increased from 80L - gives more time for valid swipes
-        private const val MIN_SWIPE_DISTANCE_PX = 45f // Increased from 40f - matches start threshold
+        private const val MIN_SWIPE_DISTANCE_PX = 70f // Increased from 45f - matches start threshold
     }
     
     /**

@@ -9,7 +9,7 @@ data class GestureSettings(
     val glideTrailFadeMs: Int = 200,
     val alwaysDeleteWord: Boolean = true,
     val swipeVelocityThreshold: Float = 1900f,
-    val swipeDistanceThreshold: Float = 20f,
+    val swipeDistanceThreshold: Float = 30f,
     val swipeUpAction: GestureAction = GestureAction.SHIFT,
     val swipeDownAction: GestureAction = GestureAction.HIDE_KEYBOARD,
     val swipeLeftAction: GestureAction = GestureAction.DELETE_CHARACTER_BEFORE_CURSOR,

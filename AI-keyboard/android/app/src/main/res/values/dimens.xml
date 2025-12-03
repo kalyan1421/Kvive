@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Key dimensions - Base values for small screens (<360dp width) -->
-    <!-- Increased to match Gboard standard key height -->
-    <dimen name="key_height">55dp</dimen>
+    <!-- Reduced key height (20% smaller) -->
+    <dimen name="key_height">32dp</dimen>
     <dimen name="key_width">9.5%p</dimen>
     <dimen name="key_text_size">18sp</dimen>
     <dimen name="key_label_text_size">14sp</dimen>
@@ -40,15 +40,15 @@
     <dimen name="special_key_width">60dp</dimen>
     <dimen name="space_key_min_width">180dp</dimen>
     
-    <!-- Adaptive key dimensions for different screen sizes -->
+    <!-- Adaptive key dimensions for different screen sizes (height reduced by 20%) -->
     <dimen name="adaptive_key_width">38dp</dimen>
-    <dimen name="adaptive_key_height">55dp</dimen>
+    <dimen name="adaptive_key_height">44dp</dimen>
     <dimen name="adaptive_key_width_small">30dp</dimen>
-    <dimen name="adaptive_key_height_small">49dp</dimen>
+    <dimen name="adaptive_key_height_small">39dp</dimen>
     <dimen name="adaptive_key_width_large">40dp</dimen>
-    <dimen name="adaptive_key_height_large">58dp</dimen>
+    <dimen name="adaptive_key_height_large">46dp</dimen>
     <dimen name="adaptive_key_width_xlarge">44dp</dimen>
-    <dimen name="adaptive_key_height_xlarge">62dp</dimen>
+    <dimen name="adaptive_key_height_xlarge">50dp</dimen>
     
     <!-- Touch target expansion for small screens -->
     <dimen name="touch_target_expansion">4dp</dimen>
@@ -56,7 +56,7 @@
     
     <!-- Floating keyboard dimensions -->
     <dimen name="floating_keyboard_width">320dp</dimen>
-    <dimen name="floating_keyboard_height">200dp</dimen>
+    <dimen name="floating_keyboard_height">160dp</dimen>
     <dimen name="floating_keyboard_margin">16dp</dimen>
     
     <!-- Split keyboard dimensions -->
@@ -84,12 +84,12 @@
     <dimen name="cursor_control_sensitivity">15dp</dimen>
     
     <!-- Fixed keyboard height to prevent resizing when switching panels (like Gboard) -->
-    <!-- Increased to match Gboard: 5 rows × 57dp + 4 gaps × 1dp + 1dp padding = 290dp -->
-    <dimen name="keyboard_fixed_height">270dp</dimen>
-    <dimen name="panel_content_height">262dp</dimen>
+    <!-- Reduced by 20% to match smaller key heights -->
+    <dimen name="keyboard_fixed_height">216dp</dimen>
+    <dimen name="panel_content_height">210dp</dimen>
     
     <!-- Keyboard default/minimum height for consistent sizing -->
-    <dimen name="keyboard_default_height">270dp</dimen>
+    <dimen name="keyboard_default_height">216dp</dimen>
     
     <!-- Navigation bar compensation -->
     <dimen name="navigation_bar_padding">0dp</dimen>
